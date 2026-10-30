@@ -1,0 +1,49 @@
+@import "tailwindcss";
+@source "../../../packages/ui/src";
+@import "../../../packages/ui/src/theme.css";
+
+/* Tablet-first: bigger touch targets for gloved hands. */
+.wh .btn { min-height: 44px; }
+.wh .btn-sm { min-height: 34px; }
+.wh .input,
+.wh .select { min-height: 44px; font-size: 15px; }
+.wh .item { padding: 12px 14px; }
+
+.scan-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.big-target {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: 18px;
+  border-radius: 2px;
+  border: 3px solid #111111;
+  background: #ffffff;
+  text-align: center;
+}
+.big-target .code { font-size: 44px; font-weight: 900; letter-spacing: 0.04em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.big-target .sub { color: var(--muted); font-size: 13px; }
+.big-target.tone-warn { border-color: var(--warn); background: #fff8eb; }
+.big-target.tone-danger { border-color: var(--danger); background: #fdf2f2; }
+.zone-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.bin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.bin-btn {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-2);
+  padding: 10px 8px;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.bin-btn small { font-weight: 500; color: var(--muted); font-size: 11px; font-family: inherit; }
+.bin-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.bin-btn.is-on { border-color: var(--accent); background: var(--selected); }

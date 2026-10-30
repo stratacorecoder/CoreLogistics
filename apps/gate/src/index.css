@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@source "../../../packages/ui/src";
+@import "../../../packages/ui/src/theme.css";
+
+.plate-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 12px;
+}
+.dir-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.dir-arriving { color: #4f8cff; }
+.dir-collecting { color: #d7a04a; }
+.dock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.dock-btn {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-2);
+  padding: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+.dock-btn small { font-weight: 500; color: var(--muted); font-size: 11px; }
+.dock-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.dock-btn.is-on { border-color: var(--accent); background: var(--selected); }
+.dock-btn.is-suggested { outline: 2px solid var(--info); outline-offset: -2px; }

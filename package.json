@@ -1,0 +1,31 @@
+{
+  "name": "corelogistics",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,tower,gate,warehouse,driver -c blue,magenta,yellow,green,cyan \"npm run dev -w @corelogistics/api\" \"npm run dev -w @corelogistics/control-tower\" \"npm run dev -w @corelogistics/gate\" \"npm run dev -w @corelogistics/warehouse\" \"npm run dev -w @corelogistics/driver\"",
+    "dev:api": "npm run dev -w @corelogistics/api",
+    "dev:tower": "npm run dev -w @corelogistics/control-tower",
+    "dev:gate": "npm run dev -w @corelogistics/gate",
+    "dev:warehouse": "npm run dev -w @corelogistics/warehouse",
+    "dev:driver": "npm run dev -w @corelogistics/driver",
+    "db:reset": "npm run db:reset -w @corelogistics/api",
+    "openapi": "npm run openapi -w @corelogistics/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true
+  }
+}
