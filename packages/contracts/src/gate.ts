@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EventSourceSchema, IdSchema } from "./common.js";
+import { EventSourceSchema, IdSchema, IsoDateSchema } from "./common.js";
 import { VehicleKindSchema } from "./fleet.js";
 import { TripSchema } from "./trips.js";
 
@@ -96,3 +96,43 @@ export const ExpectedTripSchema = TripSchema.extend({
   plate: z.string().nullable(),
 });
 export type ExpectedTrip = z.infer<typeof ExpectedTripSchema>;
+
+export const APPOINTMENT_STATUSES = ["scheduled", "checked_in", "completed", "cancelled"] as const;
+export const AppointmentStatusSchema = z.enum(APPOINTMENT_STATUSES);
+export type AppointmentStatus = z.infer<typeof AppointmentStatusSchema>;
+
+export const DockAppointmentSchema = z.object({
+  id: IdSchema,
+  code: z.string(),
+  siteId: IdSchema,
+  tripId: IdSchema.nullable(),
+  plate: z.string(),
+  carrier: z.string(),
+  purpose: DockPurposeSchema,
+  locationId: IdSchema.nullable(),
+  locationCode: z.string().nullable(),
+  windowStart: z.string(),
+  windowEnd: z.string(),
+  status: AppointmentStatusSchema,
+  notes: z.string(),
+  createdAt: z.string(),
+});
+export type DockAppointment = z.infer<typeof DockAppointmentSchema>;
+
+export const DockAppointmentInputSchema = z
+  .object({
+    siteId: IdSchema,
+    tripId: IdSchema.nullable().optional(),
+    plate: z.string().min(1).max(24),
+    carrier: z.string().default(""),
+    purpose: DockPurposeSchema.default("unload"),
+    locationId: IdSchema.nullable().optional(),
+    windowStart: IsoDateSchema,
+    windowEnd: IsoDateSchema,
+    notes: z.string().default(""),
+  })
+  .refine((a) => Date.parse(a.windowEnd) > Date.parse(a.windowStart), {
+    message: "Window end must be after window start",
+  });
+export type DockAppointmentInput = z.input<typeof DockAppointmentInputSchema>;
+

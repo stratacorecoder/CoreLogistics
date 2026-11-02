@@ -1,0 +1,16 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: corelogistics-api
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      - PORT=3100
+      - LOG_LEVEL=info
+      - CORELOGISTICS_DATA_DIR=/app/data
+      - CORELOGISTICS_DB=corelogistics.db
+    volumes:
+      - ./data:/app/data

@@ -10,8 +10,53 @@ import {
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { badRequest } from "../../errors.js";
 import { ctxOf } from "../../events.js";
-import { authenticateDevice, createDevice, ingest, listDevices, setDeviceActive } from "./service.js";
+import {
+  authenticateDevice,
+  authenticateTraccarDevice,
+  createDevice,
+  ingest,
+  listDevices,
+  setDeviceActive,
+} from "./service.js";
+
+const TraccarQuerySchema = z.object({
+  id: z.string().optional(),
+  lat: z.coerce.number(),
+  lon: z.coerce.number().optional(),
+  lng: z.coerce.number().optional(),
+  timestamp: z.union([z.coerce.number(), z.string()]).optional(),
+  speed: z.coerce.number().optional(),
+  bearing: z.coerce.number().optional(),
+  altitude: z.coerce.number().optional(),
+});
+
+function parseTraccar(data: z.infer<typeof TraccarQuerySchema>, headerKey?: string) {
+  const deviceKey = headerKey ?? data.id;
+  const device = authenticateTraccarDevice(deviceKey);
+  const lng = data.lng ?? data.lon;
+  if (lng === undefined) throw badRequest("Missing longitude (lon or lng parameter)");
+  let occurredAt: string | undefined;
+  if (data.timestamp != null) {
+    if (typeof data.timestamp === "number") {
+      const ms = data.timestamp < 1e11 ? data.timestamp * 1000 : data.timestamp;
+      occurredAt = new Date(ms).toISOString();
+    } else {
+      occurredAt = new Date(data.timestamp).toISOString();
+    }
+  }
+  return {
+    device,
+    input: {
+      type: "gps_ping" as const,
+      lat: data.lat,
+      lng,
+      speedKph: data.speed,
+      occurredAt,
+    },
+  };
+}
 
 export default async function ingestRoutes(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
@@ -56,5 +101,42 @@ export default async function ingestRoutes(app: FastifyInstance) {
       },
     },
     async (req) => ingest(devices.get(req)!, req.body),
+  );
+
+  r.get(
+    "/ingest/traccar",
+    {
+      schema: {
+        tags: ["ingest"],
+        summary: "OsmAnd / Traccar HTTP protocol GPS telemetry receiver (GET)",
+        querystring: TraccarQuerySchema,
+        response: { 200: IngestResultSchema },
+      },
+    },
+    async (req) => {
+      const headerKey = req.headers["x-device-key"] as string | undefined;
+      const { device, input } = parseTraccar(req.query, headerKey);
+      return ingest(device, input);
+    },
+  );
+
+  r.post(
+    "/ingest/traccar",
+    {
+      schema: {
+        tags: ["ingest"],
+        summary: "OsmAnd / Traccar HTTP protocol GPS telemetry receiver (POST)",
+        querystring: TraccarQuerySchema.partial(),
+        body: TraccarQuerySchema.partial().optional(),
+        response: { 200: IngestResultSchema },
+      },
+    },
+    async (req) => {
+      const combined = { ...((req.body as any) || {}), ...((req.query as any) || {}) };
+      const parsed = TraccarQuerySchema.parse(combined);
+      const headerKey = req.headers["x-device-key"] as string | undefined;
+      const { device, input } = parseTraccar(parsed, headerKey);
+      return ingest(device, input);
+    },
   );
 }

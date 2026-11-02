@@ -3,30 +3,144 @@
 @import "../../../packages/ui/src/theme.css";
 
 .plate-input {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-family: var(--font-mono, monospace);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   text-align: center;
-  padding: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: 1.5px solid var(--line);
+  color: var(--text-heading);
+  transition: all 0.15s ease;
 }
-.dir-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-.dir-arriving { color: #4f8cff; }
-.dir-collecting { color: #d7a04a; }
+.plate-input:focus {
+  border-color: #2563eb;
+  background: var(--panel);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.btn-gate-checkout {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  font-weight: 600;
+}
+.btn-gate-checkout:hover:not(:disabled) {
+  background: #fde68a;
+}
+[data-theme="dark"] .btn-gate-checkout {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+[data-theme="dark"] .btn-gate-checkout:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.28);
+}
+
+.dir-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 9999px;
+}
+.dir-badge.is-arriving {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+[data-theme="dark"] .dir-badge.is-arriving {
+  background: rgba(29, 78, 216, 0.2);
+  color: #93c5fd;
+}
+.dir-badge.is-collecting {
+  background: #fef3c7;
+  color: #b45309;
+}
+[data-theme="dark"] .dir-badge.is-collecting {
+  background: rgba(180, 83, 9, 0.2);
+  color: #fcd34d;
+}
+
+.gate-expected-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.gate-expected-item:hover:not(:disabled) {
+  background: var(--panel-2);
+  border-color: var(--line-bright);
+}
+.gate-expected-item.is-delayed {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.gate-expected-plate {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.gate-expected-route {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.gate-expected-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+button.on-site-truck-card {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+button.on-site-truck-card:hover {
+  background: var(--panel-2);
+  border-color: var(--line-bright);
+}
+button.on-site-truck-card.is-selected {
+  border-color: #2563eb;
+  background: var(--selected);
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
 .dock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
 .dock-btn {
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
-  padding: 8px;
-  font-weight: 700;
+  padding: 7px 6px;
+  font-weight: 600;
   cursor: pointer;
   display: grid;
   gap: 2px;
   text-align: center;
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  transition: border-color 0.1s;
 }
-.dock-btn small { font-weight: 500; color: var(--muted); font-size: 11px; }
-.dock-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.dock-btn small { font-weight: 400; color: var(--muted); font-size: 11px; font-family: inherit; }
+.dock-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .dock-btn.is-on { border-color: var(--accent); background: var(--selected); }
-.dock-btn.is-suggested { outline: 2px solid var(--info); outline-offset: -2px; }
+.dock-btn.is-suggested { outline: 1px solid var(--info); outline-offset: -1px; }

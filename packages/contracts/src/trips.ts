@@ -52,6 +52,10 @@ export const TripSchema = z.object({
   delayed: z.boolean(),
   delayMinutes: z.number().int(),
   etaAt: z.string().nullable(),
+  podRecipient: z.string().nullable().optional(),
+  podNotes: z.string().optional(),
+  podSignature: z.string().nullable().optional(),
+  podAt: z.string().nullable().optional(),
 });
 export type Trip = z.infer<typeof TripSchema>;
 
@@ -110,3 +114,11 @@ export const TripIssueInputSchema = z.object({
 export type TripIssueInput = z.input<typeof TripIssueInputSchema>;
 
 export const TripStopParamsSchema = z.object({ id: IdSchema, stopId: IdSchema });
+
+export const TripCompleteInputSchema = z.object({
+  recipient: z.string().trim().min(1).max(120).optional(),
+  notes: z.string().max(500).optional(),
+  signature: z.string().max(150_000).optional().describe("SVG or data:image/png;base64 signature"),
+});
+export type TripCompleteInput = z.input<typeof TripCompleteInputSchema>;
+

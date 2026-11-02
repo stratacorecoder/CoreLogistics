@@ -45,13 +45,9 @@ export default function App() {
           ]}
           value={view}
           onChange={(next) => setView(next as View)}
-          trackColor="#eef0f3"
-          thumbColor="#1c2128"
-          textColor="#3d4450"
-          activeTextColor="#ffffff"
           size="lg"
-          radius={10}
-          inset={4}
+          radius={8}
+          inset={3}
           equalSlots={false}
           stretch={100}
           squash={3}

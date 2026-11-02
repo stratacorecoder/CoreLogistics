@@ -1,4 +1,5 @@
 import { ActorBadge, LoginPage, SitePicker, Shell, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
+import { BarChart3, CalendarClock, LayoutGrid, Radio, Truck } from "lucide-react";
 import { useCallback } from "react";
 import { AnalyticsView } from "./AnalyticsView";
 import { DesignerView } from "./DesignerView";
@@ -26,11 +27,11 @@ export default function App() {
       role="Control Tower"
       onSwitchRole={() => void signOut()}
       nav={[
-        { id: "live", label: "Live site" },
-        { id: "dispatch", label: "Dispatch" },
-        { id: "fleet", label: "Fleet" },
-        { id: "designer", label: "Site designer" },
-        { id: "analytics", label: "Analytics" },
+        { id: "live", label: "Live site", icon: Radio },
+        { id: "dispatch", label: "Dispatch", icon: CalendarClock },
+        { id: "fleet", label: "Fleet", icon: Truck },
+        { id: "designer", label: "Site designer", icon: LayoutGrid },
+        { id: "analytics", label: "Analytics", icon: BarChart3 },
       ]}
       navValue={view}
       onNav={(id) => setView(id as View)}

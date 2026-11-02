@@ -1,5 +1,4 @@
 import {
-  CELL_KINDS,
   CELL_META,
   deriveLocations,
   freezeLabels,
@@ -12,11 +11,44 @@ import {
   type SiteLayout,
   type Zone,
 } from "@corelogistics/contracts";
-import { api, Empty, ErrorNote, Field, MapLegend, Panel, SiteMap, useAction, useApi, type MapCell } from "@corelogistics/ui";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  api,
+  ErrorNote,
+  Field,
+  MapLegend,
+  Panel,
+  SiteMap,
+  useAction,
+  useApi,
+  type MapCell,
+} from "@corelogistics/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Tool = CellKind | "select";
 const ZONED: CellKind[] = ["rack", "sort_lane", "staging", "dock_door", "yard_slot"];
+
+interface DesignerToolDef {
+  id: Tool;
+  label: string;
+  color?: string;
+  isOutline?: boolean;
+  description?: string;
+}
+
+const DESIGNER_TOOLS: DesignerToolDef[] = [
+  { id: "select", label: "Select", color: "#94a3b8" },
+  { id: "empty", label: "Empty", isOutline: true },
+  { id: "road", label: "Road", color: "var(--bg-subtle)" },
+  { id: "gate", label: "Gate", color: "#2563eb" },
+  { id: "dock_door", label: "Dock door", color: "#16a34a" },
+  { id: "yard_slot", label: "Yard slot", isOutline: true },
+  { id: "staging", label: "Staging", color: "#b45309" },
+  { id: "sort_lane", label: "Sort lane", color: "#312e81" },
+  { id: "rack", label: "Rack", color: "#7c3aed" },
+  { id: "aisle", label: "Aisle", color: "var(--panel-3)" },
+  { id: "wall", label: "Wall", color: "#1e293b" },
+  { id: "office", label: "Office", color: "#312e81" },
+];
 
 export function DesignerView({ siteId }: { siteId: string }) {
   const remote = useApi<SiteLayout>(`/sites/${siteId}/layout`, { live: false });
@@ -24,6 +56,8 @@ export function DesignerView({ siteId }: { siteId: string }) {
   const [tool, setTool] = useState<Tool>("rack");
   const [zone, setZone] = useState<Zone | null>("A");
   const [levels, setLevels] = useState(3);
+  const [defaultCapacity, setDefaultCapacity] = useState(10);
+  const [cellSize, setCellSize] = useState(32);
   const [selected, setSelected] = useState<string | null>(null);
   const painting = useRef(false);
   const { busy, run } = useAction();
@@ -61,7 +95,12 @@ export function DesignerView({ siteId }: { siteId: string }) {
   }, [derived]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(base);
 
-  if (!draft) return <div className="page"><ErrorNote error={remote.error} /></div>;
+  if (!draft)
+    return (
+      <div className="page">
+        <ErrorNote error={remote.error} />
+      </div>
+    );
 
   const paint = (cell: MapCell) => {
     if (tool === "select") {
@@ -77,6 +116,9 @@ export function DesignerView({ siteId }: { siteId: string }) {
         if (prev?.kind === tool && prev.label) next.label = prev.label;
         if (zone && ZONED.includes(tool)) next.zone = zone;
         if (tool === "rack") next.levels = levels;
+        if (["rack", "staging", "sort_lane"].includes(tool) && defaultCapacity) {
+          next.capacity = defaultCapacity;
+        }
         cells.push(next);
       }
       return { ...d, cells };
@@ -92,7 +134,8 @@ export function DesignerView({ siteId }: { siteId: string }) {
             cells: d.cells.map((c) => {
               if (`${c.x}:${c.y}` !== selected) return c;
               const next = { ...c, ...patch };
-              for (const k of Object.keys(next) as (keyof LayoutCell)[]) if (next[k] === undefined || next[k] === "") delete next[k];
+              for (const k of Object.keys(next) as (keyof LayoutCell)[])
+                if (next[k] === undefined || next[k] === "") delete next[k];
               return next;
             }),
           }
@@ -100,77 +143,151 @@ export function DesignerView({ siteId }: { siteId: string }) {
     );
 
   const resize = (cols: number, rows: number) =>
-    setDraft((d) => (d ? { cols, rows, cells: d.cells.filter((c) => c.x < cols && c.y < rows) } : d));
+    setDraft((d) =>
+      d ? { cols, rows, cells: d.cells.filter((c) => c.x < cols && c.y < rows) } : d,
+    );
+
+  const clearGrid = () => {
+    if (confirm("Are you sure you want to clear all cells in the layout?")) {
+      setDraft((d) => (d ? { ...d, cells: [] } : d));
+      setSelected(null);
+    }
+  };
+
+  const toggleZoom = () => {
+    setCellSize((size) => (size === 32 ? 38 : size === 38 ? 44 : 32));
+  };
 
   return (
-    <div className="split" style={{ gridTemplateColumns: "280px minmax(0, 1fr) 280px" }}>
+    <div className="split" style={{ gridTemplateColumns: "250px minmax(0, 1fr) 250px" }}>
       <Panel title="Palette" scroll>
-        <div className="stack">
-          <div className="palette">
-            <button className={`palette-item${tool === "select" ? " is-on" : ""}`} onClick={() => setTool("select")}>
-              <span className="palette-swatch" style={{ background: "#8d97a5" }} />
-              Select
-            </button>
-            {CELL_KINDS.map((k) => (
-              <button key={k} className={`palette-item${tool === k ? " is-on" : ""}`} onClick={() => setTool(k)} title={CELL_META[k].description}>
-                <span className={`palette-swatch k-${k}`} />
-                {CELL_META[k].label}
+        <div className="designer-sidebar-section">
+          <div className="designer-section-title">Brush & Placement Tools</div>
+          <div className="designer-tools-grid">
+            {DESIGNER_TOOLS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`designer-tool-btn${tool === t.id ? " is-active" : ""}`}
+                onClick={() => setTool(t.id)}
+                title={t.description}
+              >
+                <span
+                  className={`designer-tool-swatch${t.isOutline ? " is-outline" : ""}`}
+                  style={t.color ? { backgroundColor: t.color } : undefined}
+                />
+                <span className="designer-tool-label">{t.label}</span>
               </button>
             ))}
           </div>
-          <Field label="Zone for racks, lanes, docks">
-            <div className="row">
-              <button className={`zone-chip${zone === null ? " is-on" : ""}`} onClick={() => setZone(null)}>None</button>
+        </div>
+
+        <div className="designer-sidebar-section" style={{ marginTop: 20 }}>
+          <div className="designer-section-title">Grid Configurations</div>
+
+          <Field label="Edit cell properties">
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={100}
+              value={defaultCapacity}
+              onChange={(e) => setDefaultCapacity(Number(e.target.value))}
+            />
+          </Field>
+
+          <Field label="Rack levels (bins per rack)">
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={8}
+              value={levels}
+              onChange={(e) => setLevels(Math.max(1, Math.min(8, Number(e.target.value))))}
+            />
+          </Field>
+
+          <Field label="Zone">
+            <div className="designer-zone-pills">
               {ZONES.map((z) => (
-                <button key={z} className={`zone-chip${zone === z ? " is-on" : ""}`} style={{ color: ZONE_META[z].color }} onClick={() => setZone(z)} title={ZONE_META[z].description}>
+                <button
+                  key={z}
+                  type="button"
+                  className={`designer-zone-pill z-${z.toLowerCase()}${zone === z ? " is-active" : ""}`}
+                  onClick={() => setZone(zone === z ? null : z)}
+                >
                   {z} {ZONE_META[z].label}
                 </button>
               ))}
             </div>
           </Field>
-          <Field label="Rack levels (bins per rack)">
-            <input className="input" type="number" min={1} max={8} value={levels} onChange={(e) => setLevels(Math.max(1, Math.min(8, Number(e.target.value))))} />
-          </Field>
-          <div className="form-2">
+
+          <div className="form-2" style={{ marginTop: 8 }}>
             <Field label="Columns">
-              <input className="input" type="number" min={4} max={80} value={draft.cols} onChange={(e) => resize(Number(e.target.value), draft.rows)} />
+              <input
+                className="input"
+                type="number"
+                min={4}
+                max={60}
+                value={draft.cols}
+                onChange={(e) => resize(Number(e.target.value), draft.rows)}
+              />
             </Field>
             <Field label="Rows">
-              <input className="input" type="number" min={4} max={60} value={draft.rows} onChange={(e) => resize(draft.cols, Number(e.target.value))} />
+              <input
+                className="input"
+                type="number"
+                min={4}
+                max={40}
+                value={draft.rows}
+                onChange={(e) => resize(draft.cols, Number(e.target.value))}
+              />
             </Field>
           </div>
-          <p className="muted small">Click or drag on the grid to paint. Use Select to rename a cell or change its zone, levels or capacity.</p>
+
+          <p className="muted small" style={{ marginTop: 14, lineHeight: 1.45 }}>
+            Click or drag on the grid to paint. Use Select to rename a cell or change its zone, levels or capacity.
+          </p>
         </div>
       </Panel>
 
       <Panel
         title="Layout"
         actions={
-          <>
+          <div className="row" style={{ gap: 10 }}>
             <MapLegend />
-            <button className="btn btn-ghost btn-sm" disabled={!dirty || busy} onClick={() => base && setDraft(structuredClone(base))}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={!dirty || busy}
+              onClick={() => base && setDraft(structuredClone(base))}
+            >
               Discard
             </button>
             <button
+              type="button"
               className="btn btn-primary btn-sm"
               disabled={!dirty || busy || Boolean(problem)}
               onClick={async () => {
-                const saved = await run(() => api.put<SiteLayout>(`/sites/${siteId}/layout`, draft), "Layout saved; locations updated");
+                const saved = await run(
+                  () => api.put<SiteLayout>(`/sites/${siteId}/layout`, draft),
+                  "Layout saved; locations updated",
+                );
                 if (saved) remote.reload();
               }}
             >
-              Save layout
+              Save Layout
             </button>
-          </>
+          </div>
         }
       >
         <ErrorNote error={problem} />
-        <div className="map-wrap" style={{ maxHeight: "calc(100vh - 150px)" }}>
+        <div className="map-wrap" style={{ maxHeight: "calc(100vh - 175px)" }}>
           <SiteMap
             layout={draft}
             locations={preview}
             design
-            cellSize={30}
+            cellSize={cellSize}
             selectedKey={selected}
             onCellPointerDown={(c) => {
               painting.current = tool !== "select";
@@ -179,52 +296,119 @@ export function DesignerView({ siteId }: { siteId: string }) {
             onCellPointerEnter={(c) => painting.current && paint(c)}
           />
         </div>
+
+        <div className="designer-bottom-actions">
+          <button
+            type="button"
+            className="btn btn-outline btn-sm designer-pill-btn"
+            onClick={toggleZoom}
+          >
+            Zoom In/Out
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm designer-pill-btn"
+            onClick={clearGrid}
+          >
+            Clear Grid
+          </button>
+        </div>
       </Panel>
 
       <div className="stack">
         <Panel title="Derived locations">
-          <dl className="kv">
+          <div className="derived-locations-list">
             {Object.entries(counts).map(([k, n]) => (
-              <Fragment key={k}>
-                <dt>{CELL_META[(k === "bin" ? "rack" : k) as CellKind]?.label ?? k}{k === "bin" ? " bins" : ""}</dt>
-                <dd>{n}</dd>
-              </Fragment>
+              <div key={k} className="derived-location-row">
+                <span className="derived-location-label">
+                  {CELL_META[(k === "bin" ? "rack" : k) as CellKind]?.label ?? k}
+                  {k === "bin" ? " bins" : ""}
+                </span>
+                <span className="derived-location-count">{n}</span>
+              </div>
             ))}
-          </dl>
-          <p className="muted small" style={{ marginTop: 8 }}>
-            Saving re-derives addressable locations. A location that holds stock or a truck cannot be removed.
+          </div>
+          <p className="muted small" style={{ marginTop: 12, lineHeight: 1.45 }}>
+            Saving so derives addressable locations. A location that holds stock or a truck cannot be removed.
           </p>
         </Panel>
-        <Panel title="Selected cell">
+
+        <Panel title="Selected Cell Properties">
           {selectedCell ? (
             <div className="form">
-              <p className="strong">
-                {CELL_META[selectedCell.kind].label} at {selectedCell.x},{selectedCell.y}
-              </p>
-              <Field label="Label / code" hint="Printed on floor labels; clear it to auto-number">
-                <input className="input" value={selectedCell.label ?? ""} maxLength={16} onChange={(e) => updateSelected({ label: e.target.value || undefined })} />
+              <Field label="Location name">
+                <input
+                  className="input"
+                  value={selectedCell.label ?? ""}
+                  placeholder="Location name"
+                  maxLength={16}
+                  onChange={(e) => updateSelected({ label: e.target.value || undefined })}
+                />
               </Field>
               {ZONED.includes(selectedCell.kind) ? (
                 <Field label="Zone">
-                  <select className="select" value={selectedCell.zone ?? ""} onChange={(e) => updateSelected({ zone: (e.target.value || undefined) as Zone | undefined })}>
+                  <select
+                    className="select"
+                    value={selectedCell.zone ?? ""}
+                    onChange={(e) =>
+                      updateSelected({ zone: (e.target.value || undefined) as Zone | undefined })
+                    }
+                  >
                     <option value="">None</option>
-                    {ZONES.map((z) => <option key={z} value={z}>{z} · {ZONE_META[z].label}</option>)}
+                    {ZONES.map((z) => (
+                      <option key={z} value={z}>
+                        {z} {ZONE_META[z].label}
+                      </option>
+                    ))}
                   </select>
                 </Field>
               ) : null}
-              {selectedCell.kind === "rack" ? (
-                <Field label="Levels">
-                  <input className="input" type="number" min={1} max={8} value={selectedCell.levels ?? 3} onChange={(e) => updateSelected({ levels: Number(e.target.value) })} />
+              {["rack", "staging", "sort_lane"].includes(selectedCell.kind) ? (
+                <Field label="Capacity">
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={selectedCell.capacity ?? ""}
+                    placeholder="10"
+                    onChange={(e) =>
+                      updateSelected({
+                        capacity: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
                 </Field>
               ) : null}
-              {["rack", "staging", "sort_lane"].includes(selectedCell.kind) ? (
-                <Field label={selectedCell.kind === "rack" ? "Capacity per bin (HU)" : "Capacity (HU)"}>
-                  <input className="input" type="number" min={1} value={selectedCell.capacity ?? ""} placeholder="default" onChange={(e) => updateSelected({ capacity: e.target.value ? Number(e.target.value) : undefined })} />
+              {selectedCell.kind === "rack" ? (
+                <Field label="Rack levels (bins per rack)">
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={selectedCell.levels ?? 3}
+                    onChange={(e) => updateSelected({ levels: Number(e.target.value) })}
+                  />
                 </Field>
               ) : null}
             </div>
           ) : (
-            <Empty>Pick the Select tool and click a cell.</Empty>
+            <div className="form is-disabled">
+              <p className="muted small" style={{ marginBottom: 12 }}>
+                Only edit a cell and active when a cell is selected.
+              </p>
+              <Field label="Location name">
+                <input className="input" placeholder="Location name" disabled />
+              </Field>
+              <Field label="Zone">
+                <select className="select" disabled>
+                  <option>A Ambient</option>
+                </select>
+              </Field>
+              <Field label="Capacity">
+                <input className="input" type="number" placeholder="10" disabled />
+              </Field>
+            </div>
           )}
         </Panel>
       </div>

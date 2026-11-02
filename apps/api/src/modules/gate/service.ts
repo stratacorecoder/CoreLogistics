@@ -2,15 +2,17 @@ import {
   AssignDockInputSchema,
   CheckInInputSchema,
   CheckOutInputSchema,
+  DockAppointmentInputSchema,
   minutesBetween,
   VisitQuerySchema,
+  type DockAppointment,
   type DockPurpose,
   type DockSuggestion,
   type ExpectedTrip,
   type GateVisit,
 } from "@corelogistics/contracts";
 import type { z } from "zod";
-import { many, newId, one, run, tx, type Row } from "../../db.js";
+import { many, newId, nextCode, one, run, tx, type Row } from "../../db.js";
 import { badRequest, conflict, must, notFound } from "../../errors.js";
 import { at, emit, type Ctx } from "../../events.js";
 import { findVehicleByPlate, getVehicle, refreshVehicleStatus } from "../fleet/service.js";
@@ -59,6 +61,118 @@ function toVisit(r: Row): GateVisit {
       : null,
     dwellMinutes: minutesBetween(r.check_in_at, r.check_out_at ?? Date.now()),
   };
+}
+
+const APPOINTMENT_SELECT = `
+  SELECT da.*, l.code AS location_code
+  FROM dock_appointments da
+  LEFT JOIN locations l ON l.id = da.location_id`;
+
+function toAppointment(r: Row): DockAppointment {
+  return {
+    id: r.id,
+    code: r.code,
+    siteId: r.site_id,
+    tripId: r.trip_id ?? null,
+    plate: r.plate,
+    carrier: r.carrier ?? "",
+    purpose: r.purpose,
+    locationId: r.location_id ?? null,
+    locationCode: r.location_code ?? null,
+    windowStart: r.window_start,
+    windowEnd: r.window_end,
+    status: r.status,
+    notes: r.notes ?? "",
+    createdAt: r.created_at,
+  };
+}
+
+export function getAppointment(id: string): DockAppointment {
+  return toAppointment(must(one(`${APPOINTMENT_SELECT} WHERE da.id = ?`, [id]), "Dock appointment"));
+}
+
+export function listAppointments(siteId?: string, status?: string): DockAppointment[] {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (siteId) {
+    where.push("da.site_id = ?");
+    params.push(siteId);
+  }
+  if (status) {
+    where.push("da.status = ?");
+    params.push(status);
+  }
+  return many(
+    `${APPOINTMENT_SELECT} ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY da.window_start ASC`,
+    params,
+  ).map(toAppointment);
+}
+
+export function createAppointment(input: z.output<typeof DockAppointmentInputSchema>, ctx: Ctx): DockAppointment {
+  return tx(() => {
+    const site = getSite(input.siteId);
+    let locationCode: string | null = null;
+    if (input.locationId) {
+      const loc = getLocation(input.locationId);
+      if (loc.siteId !== site.id || loc.kind !== "dock_door") {
+        throw badRequest("Location is not a dock door at this site");
+      }
+      locationCode = loc.code;
+    }
+    const id = newId("app");
+    const code = nextCode("dock_appointment", "APP");
+    const when = at(ctx);
+    const vehicle = findVehicleByPlate(input.plate);
+    const plate = vehicle ? vehicle.plate : input.plate.trim().toUpperCase();
+    run(
+      `INSERT INTO dock_appointments (id, code, site_id, trip_id, plate, carrier, purpose, location_id, window_start, window_end, status, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
+      [
+        id,
+        code,
+        site.id,
+        input.tripId ?? null,
+        plate,
+        input.carrier ?? "",
+        input.purpose,
+        input.locationId ?? null,
+        input.windowStart,
+        input.windowEnd,
+        input.notes ?? "",
+        when,
+      ],
+    );
+    const appointment = getAppointment(id);
+    emit(ctx, {
+      type: "appointment.created",
+      siteId: site.id,
+      tripId: input.tripId ?? null,
+      locationId: input.locationId ?? null,
+      entityId: id,
+      message: `Appointment ${code} scheduled for ${appointment.plate} at ${site.code} (${appointment.windowStart} - ${appointment.windowEnd})`,
+      payload: { code, plate: appointment.plate, purpose: appointment.purpose, locationCode },
+    });
+    return appointment;
+  });
+}
+
+export function cancelAppointment(id: string, ctx: Ctx): DockAppointment {
+  return tx(() => {
+    const appt = getAppointment(id);
+    if (appt.status === "completed") throw badRequest("Completed appointment cannot be cancelled");
+    if (appt.status === "cancelled") return appt;
+    run(`UPDATE dock_appointments SET status = 'cancelled' WHERE id = ?`, [id]);
+    const updated = getAppointment(id);
+    emit(ctx, {
+      type: "appointment.cancelled",
+      siteId: appt.siteId,
+      tripId: appt.tripId,
+      entityId: id,
+      message: `Appointment ${appt.code} for ${appt.plate} was cancelled`,
+    });
+    return updated;
+  });
 }
 
 export function getVisit(id: string): GateVisit {
@@ -170,6 +284,14 @@ export function checkIn(input: z.output<typeof CheckInInputSchema>, ctx: Ctx): G
        VALUES (?, ?, ?, ?, ?, 'in_yard', ?, ?, ?, ?, ?)`,
       [id, site.id, vehicle.id, trip?.id ?? null, vehicle.plate, when, yardId, input.sealNo, input.notes, ctx.source],
     );
+    const scheduledAppt = one<Row>(
+      `SELECT id FROM dock_appointments WHERE site_id = ? AND status = 'scheduled' AND (plate = ? OR (trip_id IS NOT NULL AND trip_id = ?))
+       ORDER BY window_start ASC LIMIT 1`,
+      [site.id, vehicle.plate, trip?.id ?? null],
+    );
+    if (scheduledAppt) {
+      run("UPDATE dock_appointments SET status = 'checked_in' WHERE id = ?", [scheduledAppt.id]);
+    }
     run("UPDATE vehicles SET current_site_id = ? WHERE id = ?", [site.id, vehicle.id]);
     refreshVehicleStatus(vehicle.id);
     const visit = getVisit(id);
@@ -206,6 +328,11 @@ export function checkOut(input: z.output<typeof CheckOutInputSchema>, ctx: Ctx):
       `UPDATE gate_visits SET status = 'departed', check_out_at = ?, seal_out = ?, notes = CASE WHEN ? = '' THEN notes ELSE TRIM(notes || ' ' || ?) END,
        source_out = ? WHERE id = ?`,
       [when, input.sealNo, input.notes, input.notes, ctx.source, visit.id],
+    );
+    run(
+      `UPDATE dock_appointments SET status = 'completed'
+       WHERE site_id = ? AND status = 'checked_in' AND (plate = ? OR (trip_id IS NOT NULL AND trip_id = ?))`,
+      [visit.siteId, visit.plate, visit.tripId ?? null],
     );
     run("UPDATE vehicles SET current_site_id = NULL WHERE id = ?", [visit.vehicleId]);
 
@@ -249,6 +376,24 @@ export function suggestDock(visitId: string, asOf: string = new Date().toISOStri
   const visit = getVisit(visitId);
   const free = freeLocations(visit.siteId, "dock_door");
   if (!free.length) return { locationId: null, code: null, reason: "All dock doors are occupied" };
+
+  const appt = one<Row>(
+    `SELECT da.*, l.code AS location_code FROM dock_appointments da
+     JOIN locations l ON l.id = da.location_id
+     WHERE da.site_id = ? AND da.status IN ('scheduled', 'checked_in')
+       AND da.location_id IS NOT NULL
+       AND (da.plate = ? OR (da.trip_id IS NOT NULL AND da.trip_id = ?))
+     ORDER BY da.window_start ASC LIMIT 1`,
+    [visit.siteId, visit.plate, visit.tripId ?? null],
+  );
+  if (appt && free.some((l) => l.id === appt.location_id)) {
+    return {
+      locationId: appt.location_id,
+      code: appt.location_code,
+      reason: `Reserved by dock appointment ${appt.code} (${appt.purpose})`,
+    };
+  }
+
   const since = new Date(Date.parse(asOf) - 24 * 3600_000).toISOString();
   const load = new Map(
     many(

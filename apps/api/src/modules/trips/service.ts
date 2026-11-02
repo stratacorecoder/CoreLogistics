@@ -4,6 +4,7 @@ import {
   TripPatchSchema,
   TripQuerySchema,
   type Trip,
+  type TripCompleteInput,
   type TripIssueInput,
   type TripStop,
 } from "@corelogistics/contracts";
@@ -84,7 +85,13 @@ function toTrip(r: Row, stops: TripStop[], now = Date.now()): Trip {
     notes: r.notes,
     createdAt: r.created_at,
     stops,
-    ...timing(r, now),
+    delayed: timing(r, now).delayed,
+    delayMinutes: timing(r, now).delayMinutes,
+    etaAt: timing(r, now).etaAt,
+    podRecipient: r.pod_recipient ?? null,
+    podNotes: r.pod_notes ?? "",
+    podSignature: r.pod_signature ?? null,
+    podAt: r.pod_at ?? null,
   };
 }
 
@@ -362,21 +369,28 @@ export function arriveTrip(id: string, ctx: Ctx): Trip {
   });
 }
 
-export function completeTrip(id: string, ctx: Ctx): Trip {
+export function completeTrip(id: string, ctx: Ctx, pod?: TripCompleteInput): Trip {
   return tx(() => {
     let t = getTrip(id);
     if (t.status === "completed") return t;
     if (t.status !== "arrived") t = arriveTrip(t.id, ctx);
-    run("UPDATE trips SET status = 'completed', completed_at = ? WHERE id = ?", [at(ctx), t.id]);
+    const when = at(ctx);
+    const hasPod = Boolean(pod?.recipient || pod?.notes || pod?.signature);
+    run(
+      "UPDATE trips SET status = 'completed', completed_at = ?, pod_recipient = ?, pod_notes = ?, pod_signature = ?, pod_at = ? WHERE id = ?",
+      [when, pod?.recipient ?? null, pod?.notes ?? "", pod?.signature ?? null, hasPod ? when : null, t.id],
+    );
     const trip = getTrip(t.id);
     refreshAssets(trip);
+    const podMsg = pod?.recipient ? ` (signed by ${pod.recipient})` : "";
     emit(ctx, {
       type: "trip.completed",
       tripId: t.id,
       siteId: t.destinationSiteId,
       vehicleId: t.vehicleId,
       driverId: t.driverId,
-      message: `Trip ${tripLabel(trip)} completed`,
+      message: `Trip ${tripLabel(trip)} completed${podMsg}`,
+      payload: hasPod ? { recipient: pod?.recipient, notes: pod?.notes } : undefined,
     });
     return trip;
   });

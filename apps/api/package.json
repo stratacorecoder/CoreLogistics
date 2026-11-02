@@ -8,6 +8,7 @@
     "start": "tsx src/index.ts",
     "db:reset": "tsx src/reset.ts",
     "openapi": "tsx src/export-openapi.ts",
+    "test": "CORELOGISTICS_DB=:memory: tsx --test src/flow.test.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

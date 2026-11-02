@@ -60,6 +60,8 @@ export const HandlingUnitSchema = z.object({
   shipmentId: IdSchema.nullable(),
   weightKg: z.number(),
   volumeM3: z.number(),
+  lotNumber: z.string().nullable(),
+  expiryDate: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -118,6 +120,8 @@ export const ReceiveInputSchema = z.object({
   kind: HuKindSchema.default("pallet"),
   code: z.string().min(3).max(32).optional().describe("Scanned barcode; generated if omitted"),
   destinationSiteId: IdSchema.nullable().optional().describe("Set for cross-dock freight"),
+  lotNumber: z.string().max(40).nullable().optional().describe("Batch or lot code"),
+  expiryDate: z.string().nullable().optional().describe("Expiration date (YYYY-MM-DD or ISO)"),
 });
 export type ReceiveInput = z.input<typeof ReceiveInputSchema>;
 
@@ -193,6 +197,8 @@ export const InventoryRowSchema = z.object({
   skuCode: z.string(),
   skuName: z.string(),
   qty: z.number().int(),
+  earliestExpiry: z.string().nullable().optional(),
+  expiredQty: z.number().int().optional(),
 });
 export type InventoryRow = z.infer<typeof InventoryRowSchema>;
 

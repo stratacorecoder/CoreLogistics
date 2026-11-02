@@ -121,7 +121,7 @@ function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
                 if (r) setShortages(r.shortages);
               }}
             >
-              Release to floor (allocate FIFO)
+              Release to floor (allocate FEFO / FIFO)
             </button>
           ) : null}
           {order.status === "picked" ? (
@@ -158,6 +158,12 @@ function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
                     <div className="item-meta">
                       Take <strong>{p.qty}</strong> × {p.skuCode} {p.skuName} from <span className="mono">{p.fromHuCode}</span>
                     </div>
+                    {(p.lotNumber || p.expiryDate) ? (
+                      <div className="row gap-sm" style={{ marginTop: 4 }}>
+                        {p.lotNumber ? <span className="pill">Lot: {p.lotNumber}</span> : null}
+                        {p.expiryDate ? <span className="pill tone-warn">Exp: {p.expiryDate}</span> : null}
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     className="btn btn-primary btn-lg"

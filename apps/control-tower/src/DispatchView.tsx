@@ -10,7 +10,6 @@ import {
 } from "@corelogistics/contracts";
 import {
   api,
-  Empty,
   EventFeed,
   Field,
   fmtDateTime,
@@ -24,14 +23,38 @@ import {
   useNow,
   type Refs,
 } from "@corelogistics/ui";
+import {
+  ArrowDownLeft,
+  ArrowRight,
+  ArrowRightLeft,
+  ArrowUpRight,
+  Calendar,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  MapPin,
+  Navigation,
+  Plus,
+  Search,
+  Send,
+  Truck,
+  User,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
-const COLUMNS: Array<{ status: TripStatus; label: string }> = [
-  { status: "planned", label: "Planned" },
-  { status: "dispatched", label: "Dispatched" },
-  { status: "in_transit", label: "In transit" },
-  { status: "arrived", label: "Arrived" },
-  { status: "completed", label: "Completed" },
+const COLUMNS: Array<{
+  status: TripStatus;
+  label: string;
+  icon: LucideIcon;
+  color: string;
+}> = [
+  { status: "planned", label: "Planned", icon: CalendarClock, color: "var(--info)" },
+  { status: "dispatched", label: "Dispatched", icon: Send, color: "var(--accent)" },
+  { status: "in_transit", label: "In transit", icon: Truck, color: "var(--warn)" },
+  { status: "arrived", label: "Arrived", icon: MapPin, color: "var(--ok)" },
+  { status: "completed", label: "Completed", icon: CheckCircle2, color: "var(--muted)" },
 ];
 
 export function DispatchView({ refs }: { refs: Refs }) {
@@ -41,73 +64,274 @@ export function DispatchView({ refs }: { refs: Refs }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("");
+  const [quickFilter, setQuickFilter] = useState<
+    "all" | "delayed" | "needs_assets" | "outbound" | "inbound" | "transfer"
+  >("all");
 
   const all = useMemo(() => [...(active.data ?? []), ...(recent.data ?? [])], [active.data, recent.data]);
+
+  const delayedCount = useMemo(() => all.filter((t) => t.delayed).length, [all]);
+  const needsAssetsCount = useMemo(() => all.filter((t) => !t.vehicleId || !t.driverId).length, [all]);
+  const outboundCount = useMemo(() => all.filter((t) => t.kind === "outbound").length, [all]);
+  const inboundCount = useMemo(() => all.filter((t) => t.kind === "inbound").length, [all]);
+  const transferCount = useMemo(() => all.filter((t) => t.kind === "transfer").length, [all]);
+
   const visible = all.filter((t) => {
+    if (quickFilter === "delayed" && !t.delayed) return false;
+    if (quickFilter === "needs_assets" && t.vehicleId && t.driverId) return false;
+    if (quickFilter === "outbound" && t.kind !== "outbound") return false;
+    if (quickFilter === "inbound" && t.kind !== "inbound") return false;
+    if (quickFilter === "transfer" && t.kind !== "transfer") return false;
+
     if (!filter) return true;
     const hay = `${t.code} ${refs.siteCode(t.originSiteId)} ${refs.siteCode(t.destinationSiteId)} ${refs.plate(t.vehicleId)} ${refs.driverName(t.driverId)}`;
     return hay.toLowerCase().includes(filter.toLowerCase());
   });
+
   const open = all.find((t) => t.id === openId) ?? null;
 
   return (
-    <div className="page stack" style={{ display: "flex", overflow: "hidden" }}>
-      <div className="row-between">
-        <div className="row">
-          <input className="input" style={{ width: 280 }} placeholder="Filter by trip, site, plate, driver" value={filter} onChange={(e) => setFilter(e.target.value)} />
-          <span className="muted small">
-            {active.data?.filter((t) => t.delayed).length ?? 0} delayed · {active.data?.filter((t) => !t.vehicleId || !t.driverId).length ?? 0} need assets
-          </span>
+    <div className="page stack dispatch-page" style={{ display: "flex", overflow: "hidden" }}>
+      <div className="dispatch-toolbar">
+        <div className="dispatch-search-box">
+          <Search className="dispatch-search-icon" size={15} />
+          <input
+            className="dispatch-search-input"
+            placeholder="Search trip, route, plate, driver…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          {filter ? (
+            <button
+              type="button"
+              className="dispatch-clear-btn"
+              onClick={() => setFilter("")}
+              aria-label="Clear search"
+            >
+              <X size={13} />
+            </button>
+          ) : null}
         </div>
+
+        <div className="dispatch-filter-pills">
+          <button
+            type="button"
+            className={`filter-chip ${quickFilter === "all" ? "is-active" : ""}`}
+            onClick={() => setQuickFilter("all")}
+          >
+            <span>All Trips</span>
+            <span className="chip-count">{all.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`filter-chip chip-delayed ${quickFilter === "delayed" ? "is-active" : ""}`}
+            onClick={() => setQuickFilter(quickFilter === "delayed" ? "all" : "delayed")}
+          >
+            <span className="dot dot-danger" />
+            <span>Delayed</span>
+            <span className="chip-count chip-count-danger">{delayedCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`filter-chip chip-warn ${quickFilter === "needs_assets" ? "is-active" : ""}`}
+            onClick={() => setQuickFilter(quickFilter === "needs_assets" ? "all" : "needs_assets")}
+          >
+            <span className="dot dot-warn" />
+            <span>Needs Assets</span>
+            <span className="chip-count chip-count-warn">{needsAssetsCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`filter-chip ${quickFilter === "outbound" ? "is-active" : ""}`}
+            onClick={() => setQuickFilter(quickFilter === "outbound" ? "all" : "outbound")}
+          >
+            <ArrowUpRight size={12} className="text-accent" />
+            <span>Outbound</span>
+            <span className="chip-count">{outboundCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`filter-chip ${quickFilter === "inbound" ? "is-active" : ""}`}
+            onClick={() => setQuickFilter(quickFilter === "inbound" ? "all" : "inbound")}
+          >
+            <ArrowDownLeft size={12} className="text-info" />
+            <span>Inbound</span>
+            <span className="chip-count">{inboundCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`filter-chip ${quickFilter === "transfer" ? "is-active" : ""}`}
+            onClick={() => setQuickFilter(quickFilter === "transfer" ? "all" : "transfer")}
+          >
+            <ArrowRightLeft size={12} className="text-violet" />
+            <span>Transfer</span>
+            <span className="chip-count">{transferCount}</span>
+          </button>
+        </div>
+
+        <div className="dispatch-spacer" />
+
         <button className="btn btn-primary" onClick={() => setCreating(true)}>
-          New trip
+          <Plus size={15} />
+          <span>New trip</span>
         </button>
       </div>
-      <div className="board">
-        {COLUMNS.map((col) => {
+
+      {/* Connected Pipeline Track Header */}
+      <div className="pipeline-track-header">
+        {COLUMNS.map((col, idx) => (
+          <div key={col.status} className={`pipeline-header-stage stage-${col.status}`}>
+            <div className="pipeline-header-title">
+              <col.icon size={15} className="stage-icon" />
+              <span>{col.label}</span>
+            </div>
+            {idx < COLUMNS.length - 1 && (
+              <div className={`pipeline-header-connector connector-${col.status}`}>
+                <span className="connector-line" />
+                <ArrowRight size={13} className="connector-arrow" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Pipeline Board Grid */}
+      <div className="pipeline-board-grid">
+        {COLUMNS.map((col, idx) => {
           const trips = visible.filter((t) => t.status === col.status);
+          const isLastCol = idx === COLUMNS.length - 1;
           return (
-            <section key={col.status} className="board-col">
-              <header className="board-col-head">
-                <span>{col.label}</span>
-                <Pill value={col.status}>{trips.length}</Pill>
-              </header>
-              <div className="board-col-body">
+            <div key={col.status} className={`pipeline-stage-column stage-${col.status}`}>
+              <div className="pipeline-column-cards">
                 {trips.length ? (
-                  trips.map((t) => (
-                    <button key={t.id} className={`item trip-card${t.delayed ? " is-alert" : ""}`} onClick={() => setOpenId(t.id)}>
-                      <div className="row-between">
-                        <span className="item-title">{t.code}</span>
-                        <span className="row">
-                          {t.delayed ? <Pill tone="danger">+{t.delayMinutes}m</Pill> : null}
-                          <Pill tone="muted">{humanize(t.kind)}</Pill>
-                        </span>
+                  trips.map((t) => {
+                    const hasMissingAssets = !t.vehicleId || !t.driverId;
+                    return (
+                      <div key={t.id} className="pipeline-card-wrapper">
+                        <div
+                          className={`trip-card${t.delayed ? " is-delayed" : ""} stage-${col.status}`}
+                          onClick={() => setOpenId(t.id)}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div className="trip-card-header">
+                            <span className="trip-code">{t.code}</span>
+                            <div className="trip-badges">
+                              {t.delayed ? (
+                                <span className="badge-delayed">
+                                  <Clock size={11} />
+                                  <span>+{t.delayMinutes}m</span>
+                                </span>
+                              ) : null}
+                              <span className={`badge-kind badge-${t.kind}`}>
+                                {t.kind === "outbound" && <ArrowUpRight size={11} />}
+                                {t.kind === "inbound" && <ArrowDownLeft size={11} />}
+                                {t.kind === "transfer" && <ArrowRightLeft size={11} />}
+                                <span>{humanize(t.kind)}</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className={`trip-route-row route-${col.status} kind-${t.kind}`}>
+                            <span className="site-tag origin" title={refs.siteName(t.originSiteId)}>
+                              {refs.siteCode(t.originSiteId)}
+                            </span>
+                            <div className="route-connector">
+                              <span className="route-line" />
+                              <ArrowRight size={11} className="route-arrow" />
+                              {t.stops.length > 0 ? (
+                                <span className="stops-badge" title={t.stops.map((s) => refs.siteCode(s.siteId)).join(", ")}>
+                                  +{t.stops.length} step{t.stops.length > 1 ? "s" : ""}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="site-tag destination" title={refs.siteName(t.destinationSiteId)}>
+                              {refs.siteCode(t.destinationSiteId)}
+                            </span>
+                          </div>
+
+                          <div className="trip-resources">
+                            {hasMissingAssets ? (
+                              <div className="resource-alert-box">
+                                {!t.vehicleId && (
+                                  <div className="resource-alert-item">
+                                    <Truck size={12} className="alert-icon" />
+                                    <span>⚠ Truck required</span>
+                                  </div>
+                                )}
+                                {!t.driverId && (
+                                  <div className="resource-alert-item">
+                                    <User size={12} className="alert-icon" />
+                                    <span>⚠ Driver unassigned</span>
+                                  </div>
+                                )}
+                                {t.vehicleId && (
+                                  <div className="resource-row">
+                                    <Truck size={12} className="resource-icon" />
+                                    <span className="resource-val">
+                                      {refs.vehicleLabel(t.vehicleId)}
+                                      {t.trailerId ? ` + ${refs.vehicleById.get(t.trailerId)?.code}` : ""}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="trip-resources-normal">
+                                <div className="resource-row">
+                                  <Truck size={12} className="resource-icon" />
+                                  <span className="resource-val">
+                                    {refs.vehicleLabel(t.vehicleId)}
+                                    {t.trailerId ? ` + ${refs.vehicleById.get(t.trailerId)?.code}` : ""}
+                                  </span>
+                                </div>
+                                <div className="resource-row">
+                                  <User size={12} className="resource-icon" />
+                                  <span className="resource-val">{refs.driverName(t.driverId)}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="trip-card-footer">
+                            <span className="timing-readout">
+                              {t.status === "in_transit" ? (
+                                <>
+                                  <Navigation size={11} className="timing-icon text-accent" />
+                                  <span>ETA {fmtDateTime(t.etaAt)} · {fromNow(t.etaAt, now)}</span>
+                                </>
+                              ) : t.status === "completed" ? (
+                                <>
+                                  <CheckCircle2 size={11} className="timing-icon text-ok" />
+                                  <span>Done {fmtDateTime(t.completedAt)}</span>
+                                </>
+                              ) : t.status === "arrived" ? (
+                                <>
+                                  <MapPin size={11} className="timing-icon text-ok" />
+                                  <span>Arrived {fmtDateTime(t.actualArrival)}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Calendar size={11} className="timing-icon" />
+                                  <span>Departs {fmtDateTime(t.plannedDeparture)} · {fromNow(t.plannedDeparture, now)}</span>
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        {!isLastCol && (
+                          <div className="pipeline-flow-arrow" aria-hidden="true">
+                            <ArrowRight size={13} />
+                          </div>
+                        )}
                       </div>
-                      <span className="trip-route">
-                        {refs.siteCode(t.originSiteId)} → {t.stops.map((s) => `${refs.siteCode(s.siteId)} → `).join("")}
-                        {refs.siteCode(t.destinationSiteId)}
-                      </span>
-                      <span className="item-meta">
-                        {t.vehicleId ? refs.vehicleLabel(t.vehicleId) : <span className="warn-text">No vehicle</span>}
-                        {t.trailerId ? ` + ${refs.vehicleById.get(t.trailerId)?.code}` : ""}
-                      </span>
-                      <span className="item-meta">{t.driverId ? refs.driverName(t.driverId) : <span className="warn-text">No driver</span>}</span>
-                      <span className="item-meta">
-                        {t.status === "in_transit"
-                          ? `ETA ${fmtDateTime(t.etaAt)} · ${fromNow(t.etaAt, now)}`
-                          : t.status === "completed"
-                            ? `Done ${fmtDateTime(t.completedAt)}`
-                            : t.status === "arrived"
-                              ? `Arrived ${fmtDateTime(t.actualArrival)}`
-                              : `Departs ${fmtDateTime(t.plannedDeparture)} · ${fromNow(t.plannedDeparture, now)}`}
-                      </span>
-                    </button>
-                  ))
+                    );
+                  })
                 ) : (
-                  <Empty>None</Empty>
+                  <div className="empty-stage">No trips in this stage</div>
                 )}
               </div>
-            </section>
+            </div>
           );
         })}
       </div>
@@ -215,6 +439,27 @@ function TripModal({ trip, refs, onClose }: { trip: Trip; refs: Refs; onClose: (
           <>
             <dt>Notes</dt>
             <dd>{trip.notes}</dd>
+          </>
+        ) : null}
+        {(trip.podRecipient || trip.podSignature) ? (
+          <>
+            <dt>Proof of delivery</dt>
+            <dd>
+              <div>
+                <strong>{trip.podRecipient || "Signed"}</strong>
+                {trip.podAt ? <span className="muted small"> ({fmtDateTime(trip.podAt)})</span> : null}
+              </div>
+              {trip.podNotes ? <div className="muted small">{trip.podNotes}</div> : null}
+              {trip.podSignature ? (
+                <div style={{ marginTop: 6 }}>
+                  <img
+                    src={trip.podSignature}
+                    alt="Proof of delivery signature"
+                    style={{ maxHeight: 70, border: "1px solid var(--border)", background: "#ffffff", borderRadius: 4, padding: 4 }}
+                  />
+                </div>
+              ) : null}
+            </dd>
           </>
         ) : null}
       </dl>

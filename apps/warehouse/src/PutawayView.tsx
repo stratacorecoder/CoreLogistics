@@ -31,7 +31,9 @@ export function PutawayView({ siteId }: { siteId: string }) {
               <button key={t.id} className={`item${t.id === selectedId ? " is-selected" : ""}`} onClick={() => setSelectedId(t.id)}>
                 <div className="row-between">
                   <span className="item-title mono">{t.huCode}</span>
-                  <span className="mono strong">{t.suggestedCode ?? "?"}</span>
+                  <span className={`wh-task-bin-badge mono${t.id === selectedId ? " is-active" : ""}`}>
+                    {t.suggestedCode ?? "?"}
+                  </span>
                 </div>
                 <div className="item-meta">
                   <span className="zone-dot" style={{ background: ZONE_META[t.zone].color }} />
@@ -64,8 +66,11 @@ export function PutawayView({ siteId }: { siteId: string }) {
         {task ? (
           <Panel title={`${task.huCode} · ${task.skuName}`}>
             <div className="stack">
-              <div className={`big-target${override ? " tone-warn" : ""}`}>
-                <span className="sub">{override ? "Your choice" : "Suggested bin"}</span>
+              <div className={`big-target${override ? " tone-warn" : " is-suggested"}`}>
+                <div className="wh-target-badge-row">
+                  {!override ? <span className="wh-target-dot" /> : null}
+                  <span className="sub">{override ? "Manual choice" : "Suggested bin"}</span>
+                </div>
                 <span className="code">{override?.code ?? task.suggestedCode ?? "—"}</span>
                 <span className="sub">
                   Zone {task.zone} · {ZONE_META[task.zone].label} · {task.qty} units
