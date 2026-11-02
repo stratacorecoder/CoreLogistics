@@ -7,7 +7,8 @@ import {
   serializerCompiler,
   validatorCompiler,
 } from "fastify-type-provider-zod";
-import { HttpError } from "./errors.js";
+import { forbidden, HttpError, unauthorized } from "./errors.js";
+import { sessionUser, tokenOf } from "./modules/auth/service.js";
 import analyticsRoutes from "./modules/analytics/routes.js";
 import authRoutes from "./modules/auth/routes.js";
 import fleetRoutes from "./modules/fleet/routes.js";
@@ -89,6 +90,53 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   });
 
   app.get("/health", { schema: { hide: true } }, async () => ({ ok: true }));
+
+  app.addHook("onRequest", async (req) => {
+    if (req.method === "OPTIONS") return;
+    if (process.env.CORELOGISTICS_AUTH_DISABLED === "1") return;
+    const path = req.url.split("?")[0]!;
+    if (
+      path === "/health" ||
+      path === "/stream" ||
+      path === "/auth/login" ||
+      path === "/auth/logout" ||
+      path.startsWith("/docs") ||
+      path.startsWith("/ingest/")
+    ) {
+      return;
+    }
+
+    // Devices are restricted to Control Tower planners across all HTTP methods
+    if (path.startsWith("/devices")) {
+      const user = sessionUser(tokenOf(req));
+      if (!user) throw unauthorized("Sign in required");
+      if (user.role !== "tower") throw forbidden("Control Tower planner role required");
+      return;
+    }
+
+    // Reference data & authenticated GET/HEAD endpoints
+    if (req.method === "GET" || req.method === "HEAD") {
+      if (path === "/sites" || path === "/vehicles" || path === "/drivers" || path === "/skus") {
+        return;
+      }
+      const user = sessionUser(tokenOf(req));
+      if (!user) throw unauthorized("Sign in required");
+      return;
+    }
+
+    const user = sessionUser(tokenOf(req));
+    if (!user) throw unauthorized("Sign in required");
+
+    // Administrative access control
+    if (
+      (path.startsWith("/sites/") && path.endsWith("/layout") && req.method === "PUT") ||
+      (path === "/sites" && req.method === "POST")
+    ) {
+      if (user.role !== "tower") {
+        throw forbidden("Control Tower planner role required");
+      }
+    }
+  });
 
   await app.register(authRoutes);
   await app.register(siteRoutes);

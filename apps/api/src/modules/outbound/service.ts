@@ -96,7 +96,8 @@ export function createOrder(input: z.output<typeof OrderInputSchema>, ctx: Ctx):
 // Picking --------------------------------------------------------------------
 
 const PICK_SELECT = `
-  SELECT p.*, o.code AS order_code, s.code AS sku_code, s.name AS sku_name, l.code AS from_location_code, h.code AS from_hu_code
+  SELECT p.*, o.code AS order_code, s.code AS sku_code, s.name AS sku_name, l.code AS from_location_code, h.code AS from_hu_code,
+         h.lot_number, h.expiry_date
   FROM pick_tasks p
   JOIN orders o ON o.id = p.order_id
   JOIN skus s ON s.id = p.sku_id
@@ -118,6 +119,8 @@ function toPick(r: Row): PickTask {
     fromHuId: r.from_hu_id,
     fromHuCode: r.from_hu_code,
     qty: r.qty,
+    lotNumber: r.lot_number ?? null,
+    expiryDate: r.expiry_date ?? null,
     status: r.status,
     toHuId: r.to_hu_id ?? null,
     createdAt: r.created_at,
@@ -165,11 +168,13 @@ export function releaseOrder(id: string, ctx: Ctx): ReleaseResult {
       );
       let need = line.qty - allocated;
       if (need <= 0) continue;
+      const today = at(ctx).slice(0, 10);
       const units = many(
         `SELECT h.id, h.location_id, h.qty - COALESCE((SELECT SUM(p.qty) FROM pick_tasks p WHERE p.from_hu_id = h.id AND p.status = 'open'), 0) AS free
          FROM handling_units h WHERE h.site_id = ? AND h.sku_id = ? AND h.status = 'stored'
-         ORDER BY h.created_at, h.code`,
-        [order.siteId, line.skuId],
+           AND (h.expiry_date IS NULL OR h.expiry_date >= ?)
+         ORDER BY CASE WHEN h.expiry_date IS NULL THEN 1 ELSE 0 END, h.expiry_date ASC, h.created_at ASC, h.code ASC`,
+        [order.siteId, line.skuId, today],
       );
       for (const u of units) {
         if (need <= 0) break;
@@ -220,6 +225,8 @@ export function confirmPick(taskId: string, ctx: Ctx): { task: PickTask; hu: Han
       qty: task.qty,
       status: "picked",
       orderId: task.orderId,
+      lotNumber: source.lotNumber,
+      expiryDate: source.expiryDate,
     });
     run("UPDATE pick_tasks SET status = 'done', to_hu_id = ?, completed_at = ?, actor = ? WHERE id = ?", [
       hu.id,

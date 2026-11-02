@@ -17,11 +17,13 @@
     "dev:driver": "npm run dev -w @corelogistics/driver",
     "db:reset": "npm run db:reset -w @corelogistics/api",
     "openapi": "npm run openapi -w @corelogistics/api",
+    "test": "npm run test -w @corelogistics/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "playwright": "^1.64.1",
     "typescript": "^5.7.3"
   },
   "allowScripts": {

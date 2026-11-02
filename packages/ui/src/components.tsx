@@ -1,4 +1,5 @@
 import { humanize, type EventRecord, type Site } from "@corelogistics/contracts";
+import { LogOut, Moon, PanelLeft, PanelLeftClose, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { getActor } from "./api.js";
 import { SignIn2 } from "./components/ui/clean-minimal-sign-in.js";
@@ -177,6 +178,36 @@ export function Clock() {
   return <span className="clock">{now.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span>;
 }
 
+export function ThemeToggle() {
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("corelogistics:theme") || "light";
+    }
+    return "light";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("corelogistics:theme", theme);
+  }, [theme]);
+
+  const toggle = () => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  };
+
+  return (
+    <button
+      type="button"
+      className="theme-toggle-btn"
+      onClick={toggle}
+      title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+      aria-label="Toggle theme"
+    >
+      {theme === "dark" ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+    </button>
+  );
+}
+
 export function Shell({
   mark,
   title,
@@ -195,39 +226,108 @@ export function Shell({
   role: string;
   center?: ReactNode;
   right?: ReactNode;
-  nav?: Array<{ id: string; label: string }>;
+  nav?: Array<{ id: string; label: string; icon?: React.ComponentType<{ className?: string }> }>;
   navValue?: string;
   onNav?: (id: string) => void;
   onSwitchRole?: () => void;
   tone?: "office" | "floor";
   children: ReactNode;
 }) {
+  const [actorName, setActorName] = useState(getActor() || "Operator");
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("corelogistics:nav_collapsed") === "true";
+    }
+    return false;
+  });
+
+  const toggleNav = () => {
+    setNavCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("corelogistics:nav_collapsed", String(next));
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const sync = () => setActorName(getActor() || "Operator");
+    window.addEventListener("corelogistics:actor", sync);
+    return () => window.removeEventListener("corelogistics:actor", sync);
+  }, []);
+
+  const initials = (actorName || "OP")
+    .split(" ")
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   const brand = (
     <div className={nav ? "brand side-brand" : "brand"}>
       <span className="brand-mark">{mark}</span>
-      <div>
-        <p className="brand-name">{title}</p>
-        <p className="brand-role">{role}</p>
-      </div>
+      {!navCollapsed ? (
+        <div>
+          <p className="brand-name">{title}</p>
+          <p className="brand-role">{role}</p>
+        </div>
+      ) : null}
     </div>
   );
   return (
-    <div className={`${tone === "floor" ? "shell theme-floor" : "shell"}${nav ? " has-nav" : ""}`}>
+    <div className={`${tone === "floor" ? "shell theme-floor" : "shell"}${nav ? " has-nav" : ""}${nav && navCollapsed ? " is-nav-collapsed" : ""}`}>
       {nav ? (
-        <aside className="side-nav">
-          {brand}
+        <aside className={`side-nav${navCollapsed ? " is-collapsed" : ""}`}>
+          <div className="side-brand-row">
+            {brand}
+            <button
+              type="button"
+              className="nav-collapse-btn"
+              onClick={toggleNav}
+              title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {navCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            </button>
+          </div>
           <nav>
-            {nav.map((item) => (
-              <button key={item.id} type="button" className={`nav-item${item.id === navValue ? " is-on" : ""}`} onClick={() => onNav?.(item.id)}>
-                {item.label}
-              </button>
-            ))}
+            {nav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`nav-item${item.id === navValue ? " is-on" : ""}`}
+                  onClick={() => onNav?.(item.id)}
+                  title={navCollapsed ? item.label : undefined}
+                >
+                  {Icon ? <Icon className="nav-item-icon" /> : null}
+                  {!navCollapsed ? <span>{item.label}</span> : null}
+                </button>
+              );
+            })}
           </nav>
           <div className="nav-spacer" />
           {onSwitchRole ? (
-            <button className="btn btn-ghost btn-sm" type="button" onClick={onSwitchRole}>
-              Sign out
-            </button>
+            <div className="nav-footer">
+              <div className="nav-user-info" title={navCollapsed ? `${actorName} (${role})` : undefined}>
+                <div className="nav-user-avatar">{initials}</div>
+                {!navCollapsed ? (
+                  <div className="nav-user-meta">
+                    <span className="nav-user-name">{actorName}</span>
+                    <span className="nav-user-role">{role}</span>
+                  </div>
+                ) : null}
+              </div>
+              <button
+                className="nav-logout-btn"
+                type="button"
+                onClick={onSwitchRole}
+                title="Sign out"
+                aria-label="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           ) : null}
         </aside>
       ) : null}
@@ -243,6 +343,7 @@ export function Shell({
           ) : null}
           <LiveDot />
           <Clock />
+          <ThemeToggle />
         </div>
       </header>
       <main className="shell-main">{children}</main>

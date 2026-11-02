@@ -69,6 +69,8 @@ export const PickTaskSchema = z.object({
   fromHuId: IdSchema,
   fromHuCode: z.string(),
   qty: z.number().int(),
+  lotNumber: z.string().nullable().optional(),
+  expiryDate: z.string().nullable().optional(),
   status: PickStatusSchema,
   toHuId: IdSchema.nullable(),
   createdAt: z.string(),

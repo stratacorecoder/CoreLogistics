@@ -1,6 +1,7 @@
 import {
   EventRecordSchema,
   IdParamsSchema,
+  TripCompleteInputSchema,
   TripInputSchema,
   TripIssueInputSchema,
   TripPatchSchema,
@@ -49,7 +50,18 @@ export default async function tripRoutes(app: FastifyInstance) {
   r.post("/trips/:id/arrive", { schema: { tags, ...one, summary: "Confirm arrival (idempotent)" } }, async (req) =>
     arriveTrip(req.params.id, ctxOf(req)),
   );
-  r.post("/trips/:id/complete", { schema: { tags, ...one } }, async (req) => completeTrip(req.params.id, ctxOf(req)));
+  r.post(
+    "/trips/:id/complete",
+    {
+      schema: {
+        tags,
+        ...one,
+        summary: "Complete trip with optional electronic proof of delivery (e-POD)",
+        body: TripCompleteInputSchema.optional(),
+      },
+    },
+    async (req) => completeTrip(req.params.id, ctxOf(req), req.body),
+  );
   r.post("/trips/:id/cancel", { schema: { tags, ...one } }, async (req) => cancelTrip(req.params.id, ctxOf(req)));
 
   r.post(

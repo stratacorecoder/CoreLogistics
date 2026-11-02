@@ -4,36 +4,36 @@
 
 /* Mobile-first: one column, thumb-sized buttons. */
 .drv { max-width: 560px; width: 100%; margin: 0 auto; padding: 14px; display: grid; gap: 12px; align-content: start; overflow: auto; }
-.drv .btn { min-height: 52px; font-size: 16px; }
+.drv .btn { min-height: 48px; font-size: 15px; }
 .drv .btn-sm { min-height: 36px; font-size: 13px; }
 .drv .input,
 .drv .select,
-.drv .textarea { min-height: 48px; font-size: 16px; }
+.drv .textarea { min-height: 44px; font-size: 15px; }
 .drv-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.drv-hello { font-size: 22px; font-weight: 800; }
-.trip-sheet { display: grid; gap: 12px; padding: 4px 2px 8px; }
-.trip-next { font-size: 28px; line-height: 1.15; font-weight: 800; letter-spacing: -0.03em; }
-.trip-meta-line { color: var(--muted); font-size: 14px; }
-.trip-late { color: #9b1c1c; font-weight: 700; }
-.trip-truck { font-size: 13px; }
-.trip-notes { font-size: 14px; line-height: 1.4; }
+.drv-hello { font-size: 20px; font-weight: 700; color: var(--text-heading); }
+.trip-sheet { display: grid; gap: 10px; padding: 4px 2px 8px; }
+.trip-next { font-size: 24px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; color: var(--text-heading); }
+.trip-meta-line { color: var(--muted); font-size: 13px; font-family: "IBM Plex Mono", monospace; }
+.trip-late { color: var(--danger); font-weight: 600; }
+.trip-truck { font-size: 12.5px; }
+.trip-notes { font-size: 13.5px; line-height: 1.4; color: var(--text-muted); }
 .drv-fold { border-top: 1px solid var(--line); padding-top: 10px; }
-.drv-fold summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+.drv-fold summary { cursor: pointer; font-weight: 600; padding: 8px 0; color: var(--text); }
 .drv-fold .list, .drv-fold .event-feed { margin-top: 8px; }
 .trip-hero { display: grid; gap: 10px; }
 .route { display: grid; gap: 0; }
-.route-stop { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 8px 0; position: relative; }
-.route-stop::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: var(--line); }
+.route-stop { display: grid; grid-template-columns: 20px 1fr auto; gap: 10px; align-items: start; padding: 8px 0; position: relative; }
+.route-stop::before { content: ""; position: absolute; left: 9px; top: 0; bottom: 0; width: 2px; background: var(--line); }
 .route-stop:first-child::before { top: 50%; }
 .route-stop:last-child::before { bottom: 50%; }
-.route-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel); position: relative; z-index: 1; }
+.route-dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel); position: relative; z-index: 1; }
 .route-dot.is-done { background: var(--accent); border-color: var(--accent); }
-.route-dot.is-here { border-color: var(--warn); background: #fff4df; }
-.route-name { font-weight: 700; }
-.route-meta { color: var(--muted); font-size: 12px; }
-.issue-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.issue-btn { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: 12px; font-weight: 700; cursor: pointer; }
-.issue-btn.is-on { border-color: var(--danger); background: #fdf2f2; color: #7a1b16; }
+.route-dot.is-here { border-color: var(--warn); background: var(--warn-subtle); }
+.route-name { font-weight: 600; color: var(--text-heading); }
+.route-meta { color: var(--muted); font-size: 12px; font-family: "IBM Plex Mono", monospace; }
+.issue-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.issue-btn { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2); padding: 10px; font-weight: 600; cursor: pointer; color: var(--text); font-size: 13px; }
+.issue-btn.is-on { border-color: var(--danger); background: var(--danger-subtle); color: var(--danger); }
 @media (max-width: 720px) {
   .topbar-center { display: none; }
   .theme-floor .brand-name,

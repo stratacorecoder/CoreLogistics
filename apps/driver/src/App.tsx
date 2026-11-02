@@ -20,7 +20,7 @@ import {
   useRefs,
   type Refs,
 } from "@corelogistics/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function App() {
   const { user, ready, signIn, signOut } = useAuth("driver");
@@ -112,10 +112,104 @@ function DriverHome({ driver, refs }: { driver: Driver; refs: Refs }) {
 
 const rank = (t: Trip) => ({ in_transit: 0, arrived: 1, dispatched: 2, planned: 3 })[t.status as "planned"] ?? 9;
 
+function SignaturePad({ onSign, onClear }: { onSign: (dataUrl: string) => void; onClear: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [hasStroke, setHasStroke] = useState(false);
+
+  const getCoords = (canvas: HTMLCanvasElement, e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width ? canvas.width / rect.width : 1;
+    const scaleY = rect.height ? canvas.height / rect.height : 1;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  const startDraw = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { x, y } = getCoords(canvas, e);
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#1e293b";
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setDrawing(true);
+    setHasStroke(true);
+  };
+
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { x, y } = getCoords(canvas, e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDraw = () => {
+    if (!drawing) return;
+    setDrawing(false);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      onSign(canvas.toDataURL("image/png"));
+    }
+  };
+
+  const clear = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasStroke(false);
+    onClear();
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span className="small muted">Recipient signature (e-POD)</span>
+        {hasStroke ? (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={clear} style={{ padding: "2px 8px" }}>
+            Clear
+          </button>
+        ) : null}
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={320}
+        height={110}
+        style={{
+          border: "1px dashed var(--border, #cbd5e1)",
+          borderRadius: 6,
+          background: "#ffffff",
+          touchAction: "none",
+          width: "100%",
+          maxHeight: 120,
+        }}
+        onPointerDown={startDraw}
+        onPointerMove={draw}
+        onPointerUp={stopDraw}
+        onPointerLeave={stopDraw}
+      />
+    </div>
+  );
+}
+
 function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number }) {
   const { busy, run } = useAction();
   const events = useApi<EventRecord[]>(`/trips/${trip.id}/events`, { live: (e) => e.tripId === trip.id });
   const [reporting, setReporting] = useState(false);
+  const [recipient, setRecipient] = useState("");
+  const [podNotes, setPodNotes] = useState("");
+  const [signature, setSignature] = useState("");
   const act = (path: string, msg: string) => run(() => api.post<Trip>(`/trips/${trip.id}/${path}`), msg);
   const nextStop = trip.status === "in_transit" ? trip.stops.find((s) => !s.departedAt) : undefined;
   const waypoint = nextStop && nextStop.siteId !== trip.destinationSiteId ? nextStop : undefined;
@@ -208,9 +302,44 @@ function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number 
           </button>
         ) : null}
         {trip.status === "arrived" ? (
-          <button className="btn btn-primary btn-block" disabled={busy} onClick={() => act("complete", "Trip completed")}>
-            Delivered, finish trip
-          </button>
+          <div className="stack" style={{ background: "var(--card-bg, rgba(255,255,255,0.05))", padding: 12, borderRadius: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 16 }}>Proof of delivery (e-POD)</h3>
+            <Field label="Recipient name">
+              <input
+                className="input"
+                placeholder="e.g. John Doe, Receiving Lead"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+              />
+            </Field>
+            <Field label="Delivery notes">
+              <input
+                className="input"
+                placeholder="Gate #, dock notes, conditions..."
+                value={podNotes}
+                onChange={(e) => setPodNotes(e.target.value)}
+              />
+            </Field>
+            <SignaturePad onSign={setSignature} onClear={() => setSignature("")} />
+            <button
+              className="btn btn-primary btn-block"
+              style={{ marginTop: 8 }}
+              disabled={busy}
+              onClick={() =>
+                run(
+                  () =>
+                    api.post<Trip>(`/trips/${trip.id}/complete`, {
+                      recipient: recipient || undefined,
+                      notes: podNotes || undefined,
+                      signature: signature || undefined,
+                    }),
+                  "Trip completed with e-POD",
+                )
+              }
+            >
+              Sign & finish delivery
+            </button>
+          </div>
         ) : null}
         <button className="btn btn-ghost btn-block" onClick={() => setReporting((v) => !v)}>
           {reporting ? "Cancel report" : "Report a problem"}

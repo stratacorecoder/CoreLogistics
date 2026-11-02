@@ -6,11 +6,17 @@ import { customAlphabet } from "nanoid";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const dataDir = process.env.CORELOGISTICS_DATA_DIR ?? path.resolve(here, "../data");
-export const dbFile = path.join(dataDir, process.env.CORELOGISTICS_DB ?? "corelogistics.db");
-fs.mkdirSync(dataDir, { recursive: true });
+const dbEnv = process.env.CORELOGISTICS_DB ?? "corelogistics.db";
+export const isMemory = dbEnv === ":memory:";
+export const dbFile = isMemory ? ":memory:" : path.isAbsolute(dbEnv) ? dbEnv : path.join(dataDir, dbEnv);
+if (!isMemory) {
+  fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+}
 
 export const sqlite = new DatabaseSync(dbFile);
-sqlite.exec("PRAGMA journal_mode = WAL");
+if (!isMemory) {
+  sqlite.exec("PRAGMA journal_mode = WAL");
+}
 sqlite.exec("PRAGMA foreign_keys = ON");
 sqlite.exec("PRAGMA busy_timeout = 3000");
 
