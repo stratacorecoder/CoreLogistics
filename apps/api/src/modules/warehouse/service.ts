@@ -156,7 +156,7 @@ export function insertHu(
       h.receiptId ?? null,
       h.orderId ?? null,
       h.lotNumber ?? null,
-      h.expiryDate ?? null,
+      h.expiryDate ? h.expiryDate.slice(0, 10) : null,
       when,
       when,
     ],

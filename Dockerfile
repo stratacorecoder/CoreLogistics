@@ -19,11 +19,11 @@ ENV CORELOGISTICS_DATA_DIR=/app/data
 WORKDIR /app
 
 COPY --from=dependencies /app/node_modules ./node_modules
-COPY --from=dependencies /app/packages ./packages
-COPY --from=dependencies /app/apps/api/node_modules ./apps/api/node_modules
 COPY . .
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown -R node:node /app
+
+USER node
 
 EXPOSE 3100
 

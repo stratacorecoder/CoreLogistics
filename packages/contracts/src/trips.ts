@@ -118,7 +118,16 @@ export const TripStopParamsSchema = z.object({ id: IdSchema, stopId: IdSchema })
 export const TripCompleteInputSchema = z.object({
   recipient: z.string().trim().min(1).max(120).optional(),
   notes: z.string().max(500).optional(),
-  signature: z.string().max(150_000).optional().describe("SVG or data:image/png;base64 signature"),
+  signature: z
+    .string()
+    .trim()
+    .max(150_000)
+    .refine(
+      (val) => !val || /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(val),
+      { message: "Signature must be a valid base64 image data URL" },
+    )
+    .optional()
+    .describe("Base64 image data URL (data:image/...)"),
 });
 export type TripCompleteInput = z.input<typeof TripCompleteInputSchema>;
 

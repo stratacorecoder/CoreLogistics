@@ -185,7 +185,7 @@ export function DesignerView({ siteId }: { siteId: string }) {
         <div className="designer-sidebar-section" style={{ marginTop: 20 }}>
           <div className="designer-section-title">Grid Configurations</div>
 
-          <Field label="Edit cell properties">
+          <Field label="Default capacity (HU)">
             <input
               className="input"
               type="number"
@@ -329,7 +329,7 @@ export function DesignerView({ siteId }: { siteId: string }) {
             ))}
           </div>
           <p className="muted small" style={{ marginTop: 12, lineHeight: 1.45 }}>
-            Saving so derives addressable locations. A location that holds stock or a truck cannot be removed.
+            Saving re-derives addressable locations. A location that holds stock or a truck cannot be removed.
           </p>
         </Panel>
 
@@ -395,7 +395,7 @@ export function DesignerView({ siteId }: { siteId: string }) {
           ) : (
             <div className="form is-disabled">
               <p className="muted small" style={{ marginBottom: 12 }}>
-                Only edit a cell and active when a cell is selected.
+                Select a cell on the map to edit its properties.
               </p>
               <Field label="Location name">
                 <input className="input" placeholder="Location name" disabled />

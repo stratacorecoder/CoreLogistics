@@ -211,6 +211,12 @@ export function DispatchView({ refs }: { refs: Refs }) {
                         <div
                           className={`trip-card${t.delayed ? " is-delayed" : ""} stage-${col.status}`}
                           onClick={() => setOpenId(t.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setOpenId(t.id);
+                            }
+                          }}
                           role="button"
                           tabIndex={0}
                         >

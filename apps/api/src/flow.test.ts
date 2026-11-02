@@ -92,6 +92,36 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       const health = await app.inject({ method: "GET", url: "/health" });
       assert.equal(health.statusCode, 200);
     });
+
+    it("rejects unauthenticated access to /devices with 401 Unauthorized", async () => {
+      const res = await app.inject({ method: "GET", url: "/devices" });
+      assert.equal(res.statusCode, 401);
+    });
+
+    it("rejects unauthenticated access to operational GET endpoints (/trips) with 401 Unauthorized", async () => {
+      const res = await app.inject({ method: "GET", url: "/trips" });
+      assert.equal(res.statusCode, 401);
+    });
+
+    it("rejects non-tower role attempting GET /devices with 403 Forbidden", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/devices",
+        headers: { "x-session": warehouseToken },
+      });
+      assert.equal(res.statusCode, 403);
+    });
+
+    it("allows tower role to access GET /devices with 200 OK", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/devices",
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(res.statusCode, 200);
+      const list = JSON.parse(res.payload);
+      assert.ok(Array.isArray(list));
+    });
   });
 
   describe("2. Dock Appointments Scheduling & Smart Suggestion (OpenWMS)", () => {
@@ -151,6 +181,30 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       assert.equal(body.status, "scheduled");
       appointmentId = body.id;
       appointmentCode = body.code;
+    });
+
+    it("rejects scheduling an overlapping appointment on the same dock door with 409 Conflict", async () => {
+      const windowStart = new Date(Date.now() + 4000_000).toISOString();
+      const windowEnd = new Date(Date.now() + 8000_000).toISOString();
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/gate/appointments",
+        headers: { "x-session": towerToken },
+        payload: {
+          siteId,
+          plate: "DIFF-PLATE",
+          carrier: "Other Carrier",
+          purpose: "load",
+          locationId: dockDoorId,
+          windowStart,
+          windowEnd,
+        },
+      });
+
+      assert.equal(res.statusCode, 409);
+      const body = JSON.parse(res.payload);
+      assert.match(body.error, /already booked by appointment/i);
     });
 
     it("lists scheduled dock appointments filtered by site", async () => {
@@ -336,6 +390,56 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       assert.equal(huExp.lotNumber, "LOT-EXPIRED");
       assert.equal(huExp.expiryDate, "2021-01-01");
       huExpiredId = huExp.id;
+    });
+
+    it("rejects receiving an item with an invalid expiry date format with 400 Bad Request", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: `/warehouse/receipts/${receiptId}/receive`,
+        headers: { "x-session": warehouseToken },
+        payload: {
+          skuId,
+          qty: 5,
+          kind: "pallet",
+          lotNumber: "LOT-BAD-DATE",
+          expiryDate: "02-01-2027", // Not YYYY-MM-DD
+        },
+      });
+      assert.equal(res.statusCode, 400);
+      const body = JSON.parse(res.payload);
+      assert.match(body.error, /YYYY-MM-DD/i);
+
+      const badCalendar = await app.inject({
+        method: "POST",
+        url: `/warehouse/receipts/${receiptId}/receive`,
+        headers: { "x-session": warehouseToken },
+        payload: {
+          skuId,
+          qty: 5,
+          kind: "pallet",
+          lotNumber: "LOT-FEB-31",
+          expiryDate: "2027-02-31",
+        },
+      });
+      assert.equal(badCalendar.statusCode, 400);
+    });
+
+    it("accepts an empty string for expiryDate and normalizes it to null", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: `/warehouse/receipts/${receiptId}/receive`,
+        headers: { "x-session": warehouseToken },
+        payload: {
+          skuId,
+          qty: 5,
+          kind: "pallet",
+          lotNumber: "LOT-NO-EXPIRY",
+          expiryDate: "",
+        },
+      });
+      assert.equal(res.statusCode, 200);
+      const hu = JSON.parse(res.payload);
+      assert.equal(hu.expiryDate, null);
     });
 
     it("verifies warehouse scan endpoint returns lot and expiry data", async () => {
@@ -528,6 +632,21 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       assert.equal(trip.podSignature, dummySignature);
       assert.ok(trip.podAt);
     });
+
+    it("rejects completing trip with an invalid non-image signature data URL with 400 Bad Request", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: `/trips/${tripId}/complete`,
+        headers: { "x-session": towerToken },
+        payload: {
+          recipient: "Tester",
+          signature: "https://evil.com/fake-signature.png",
+        },
+      });
+      assert.equal(res.statusCode, 400);
+      const body = JSON.parse(res.payload);
+      assert.match(body.error, /Signature must be a valid base64 image data URL/i);
+    });
   });
 
   describe("5. Telematics & Ingestion Bridge (Cameras, RFID, Traccar/OsmAnd)", () => {
@@ -574,6 +693,24 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       assert.equal(res.statusCode, 200);
       const body = JSON.parse(res.payload);
       assert.equal(body.accepted, true);
+    });
+
+    it("rejects Traccar request with a malformed timestamp with 400 Bad Request", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/ingest/traccar?id=GPS-T01&lat=14.2120&lon=121.1650&timestamp=not-a-valid-timestamp",
+      });
+      assert.equal(res.statusCode, 400);
+      const body = JSON.parse(res.payload);
+      assert.match(body.error, /Invalid timestamp/i);
+    });
+
+    it("rejects non-GPS device code on /ingest/traccar with 401 Unauthorized", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/ingest/traccar?id=CAM-WH-GATE&lat=14.2120&lon=121.1650",
+      });
+      assert.equal(res.statusCode, 401);
     });
   });
 });

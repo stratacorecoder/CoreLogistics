@@ -121,7 +121,24 @@ export const ReceiveInputSchema = z.object({
   code: z.string().min(3).max(32).optional().describe("Scanned barcode; generated if omitted"),
   destinationSiteId: IdSchema.nullable().optional().describe("Set for cross-dock freight"),
   lotNumber: z.string().max(40).nullable().optional().describe("Batch or lot code"),
-  expiryDate: z.string().nullable().optional().describe("Expiration date (YYYY-MM-DD or ISO)"),
+  expiryDate: z
+    .string()
+    .trim()
+    .refine(
+      (val) => {
+        if (val === "") return true;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return false;
+        const d = new Date(`${val}T00:00:00Z`);
+        return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === val;
+      },
+      {
+        message: "Expiry date must be a valid calendar date in YYYY-MM-DD format",
+      },
+    )
+    .transform((val) => (val === "" ? null : val))
+    .nullable()
+    .optional()
+    .describe("Expiration date (YYYY-MM-DD)"),
 });
 export type ReceiveInput = z.input<typeof ReceiveInputSchema>;
 

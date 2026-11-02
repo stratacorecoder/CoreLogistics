@@ -80,7 +80,7 @@ export function authenticateTraccarDevice(keyOrCode: string | undefined): Device
   if (!keyOrCode) throw unauthorized("Traccar device identifier or key required");
   let r = one("SELECT * FROM devices WHERE api_key_hash = ?", [hashKey(keyOrCode)]);
   if (!r) {
-    r = one("SELECT * FROM devices WHERE code = ?", [keyOrCode]);
+    r = one("SELECT * FROM devices WHERE code = ? AND kind = 'gps'", [keyOrCode]);
   }
   if (!r || !toBool(r.active)) throw unauthorized("Unknown or disabled device");
   return toDevice(r);

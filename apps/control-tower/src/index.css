@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @source "../../../packages/ui/src";
 @import "../../../packages/ui/src/theme.css";
+@import "./dispatch.css";
+@import "./designer-live.css";
 
 .palette { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .palette-item {

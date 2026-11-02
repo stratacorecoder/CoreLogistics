@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/data
+.git
+.agents
+.codex
+*.log
+.DS_Store
+.env*
+!.env.example

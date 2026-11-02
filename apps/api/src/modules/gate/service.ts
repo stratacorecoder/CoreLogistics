@@ -119,6 +119,18 @@ export function createAppointment(input: z.output<typeof DockAppointmentInputSch
         throw badRequest("Location is not a dock door at this site");
       }
       locationCode = loc.code;
+      const conflicting = one<Row>(
+        `SELECT id, code, plate, window_start, window_end FROM dock_appointments
+         WHERE site_id = ? AND location_id = ? AND status IN ('scheduled', 'checked_in')
+           AND window_start < ? AND window_end > ?
+         LIMIT 1`,
+        [site.id, input.locationId, input.windowEnd, input.windowStart],
+      );
+      if (conflicting) {
+        throw conflict(
+          `Dock door ${locationCode} is already booked by appointment ${conflicting.code} (${conflicting.plate}) for window ${conflicting.window_start} - ${conflicting.window_end}`,
+        );
+      }
     }
     const id = newId("app");
     const code = nextCode("dock_appointment", "APP");

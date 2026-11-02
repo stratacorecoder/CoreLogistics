@@ -23,6 +23,7 @@ import {
 
 const TraccarQuerySchema = z.object({
   id: z.string().optional(),
+  key: z.string().optional(),
   lat: z.coerce.number(),
   lon: z.coerce.number().optional(),
   lng: z.coerce.number().optional(),
@@ -33,18 +34,24 @@ const TraccarQuerySchema = z.object({
 });
 
 function parseTraccar(data: z.infer<typeof TraccarQuerySchema>, headerKey?: string) {
-  const deviceKey = headerKey ?? data.id;
+  const deviceKey = headerKey ?? data.key ?? data.id;
   const device = authenticateTraccarDevice(deviceKey);
   const lng = data.lng ?? data.lon;
-  if (lng === undefined) throw badRequest("Missing longitude (lon or lng parameter)");
+  if (lng === undefined || Number.isNaN(lng)) throw badRequest("Missing longitude (lon or lng parameter)");
+  if (Number.isNaN(data.lat)) throw badRequest("Invalid latitude");
   let occurredAt: string | undefined;
   if (data.timestamp != null) {
+    let d: Date;
     if (typeof data.timestamp === "number") {
       const ms = data.timestamp < 1e11 ? data.timestamp * 1000 : data.timestamp;
-      occurredAt = new Date(ms).toISOString();
+      d = new Date(ms);
     } else {
-      occurredAt = new Date(data.timestamp).toISOString();
+      d = new Date(data.timestamp);
     }
+    if (Number.isNaN(d.getTime())) {
+      throw badRequest("Invalid timestamp");
+    }
+    occurredAt = d.toISOString();
   }
   return {
     device,

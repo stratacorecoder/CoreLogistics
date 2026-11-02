@@ -92,11 +92,12 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   app.get("/health", { schema: { hide: true } }, async () => ({ ok: true }));
 
   app.addHook("onRequest", async (req) => {
-    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return;
+    if (req.method === "OPTIONS") return;
     if (process.env.CORELOGISTICS_AUTH_DISABLED === "1") return;
     const path = req.url.split("?")[0]!;
     if (
       path === "/health" ||
+      path === "/stream" ||
       path === "/auth/login" ||
       path === "/auth/logout" ||
       path.startsWith("/docs") ||
@@ -104,14 +105,32 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
     ) {
       return;
     }
+
+    // Devices are restricted to Control Tower planners across all HTTP methods
+    if (path.startsWith("/devices")) {
+      const user = sessionUser(tokenOf(req));
+      if (!user) throw unauthorized("Sign in required");
+      if (user.role !== "tower") throw forbidden("Control Tower planner role required");
+      return;
+    }
+
+    // Reference data & authenticated GET/HEAD endpoints
+    if (req.method === "GET" || req.method === "HEAD") {
+      if (path === "/sites" || path === "/vehicles" || path === "/drivers" || path === "/skus") {
+        return;
+      }
+      const user = sessionUser(tokenOf(req));
+      if (!user) throw unauthorized("Sign in required");
+      return;
+    }
+
     const user = sessionUser(tokenOf(req));
     if (!user) throw unauthorized("Sign in required");
 
     // Administrative access control
     if (
       (path.startsWith("/sites/") && path.endsWith("/layout") && req.method === "PUT") ||
-      (path === "/sites" && req.method === "POST") ||
-      (path.startsWith("/devices") && (req.method === "POST" || req.method === "PATCH"))
+      (path === "/sites" && req.method === "POST")
     ) {
       if (user.role !== "tower") {
         throw forbidden("Control Tower planner role required");
