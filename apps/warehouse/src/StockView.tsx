@@ -53,6 +53,18 @@ export function StockView({ siteId }: { siteId: string }) {
               <dd>
                 {found.qty} × {found.skuCode} {found.skuName}
               </dd>
+              {found.lotNumber ? (
+                <>
+                  <dt>Lot / Batch</dt>
+                  <dd className="mono">{found.lotNumber}</dd>
+                </>
+              ) : null}
+              {found.expiryDate ? (
+                <>
+                  <dt>Expiry date</dt>
+                  <dd>{found.expiryDate}</dd>
+                </>
+              ) : null}
               <dt>Status</dt>
               <dd>
                 <Pill value={found.status} />
@@ -120,8 +132,16 @@ export function StockView({ siteId }: { siteId: string }) {
                   <td className="mono strong">{r.locationCode}</td>
                   <td>
                     {r.skuCode} <span className="muted small">{r.skuName}</span>
+                    {r.earliestExpiry ? (
+                      <div className="muted small">Exp: {r.earliestExpiry}</div>
+                    ) : null}
                   </td>
-                  <td className="right">{r.qty}</td>
+                  <td className="right">
+                    <span>{r.qty}</span>
+                    {r.expiredQty ? (
+                      <div className="pill tone-bad" style={{ fontSize: 10, marginTop: 2, display: "inline-block" }}>{r.expiredQty} exp</div>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

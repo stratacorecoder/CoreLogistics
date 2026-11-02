@@ -41,6 +41,8 @@ export const EVENT_TYPES = [
   "shipment.departed",
   "device.created",
   "device.read",
+  "appointment.created",
+  "appointment.cancelled",
 ] as const;
 export const EventTypeSchema = z.enum(EVENT_TYPES);
 export type EventType = z.infer<typeof EventTypeSchema>;

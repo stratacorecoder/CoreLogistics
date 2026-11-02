@@ -1,6 +1,7 @@
 import {
   formatDuration,
   humanize,
+  type DockAppointment,
   type DockPurpose,
   type DockSuggestion,
   type ExpectedTrip,
@@ -16,6 +17,7 @@ import {
   Field,
   fmtDateTime,
   fmtTime,
+  fromLocalInput,
   fromNow,
   MapLegend,
   Modal,
@@ -28,6 +30,7 @@ import {
   SiteMap,
   SitePicker,
   Tabs,
+  toLocalInput,
   useAction,
   useApi,
   useLocalState,
@@ -37,7 +40,7 @@ import {
 } from "@corelogistics/ui";
 import { useCallback, useMemo, useState } from "react";
 
-type Side = "expected" | "log";
+type Side = "expected" | "appointments" | "log";
 
 export default function App() {
   const { user, ready, signIn, signOut } = useAuth("gate");
@@ -66,14 +69,17 @@ export default function App() {
 }
 
 function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
+  const { busy, run } = useAction();
   const now = useNow(30_000);
   const expected = useApi<ExpectedTrip[]>(`/gate/expected${qs({ siteId })}`);
+  const appointments = useApi<DockAppointment[]>(`/gate/appointments${qs({ siteId })}`);
   const visits = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, open: "true" })}`);
   const log = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, limit: 40 })}`);
   const board = useApi<SiteBoard>(`/sites/${siteId}/board`);
   const [side, setSide] = useState<Side>("expected");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [checkInFor, setCheckInFor] = useState<{ plate: string; tripId?: string } | null>(null);
+  const [booking, setBooking] = useState(false);
 
   const selected = visits.data?.find((v) => v.id === selectedId) ?? null;
   const highlight = useMemo(
@@ -87,50 +93,119 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
     if (v) setSelectedId(v.id);
   };
 
+  const cellSize = useMemo(() => {
+    if (!board.data?.layout) return 32;
+    const cols = board.data.layout.cols;
+    if (cols > 20) return 24;
+    if (cols > 16) return 28;
+    return 32;
+  }, [board.data?.layout]);
+
   return (
-    <div className="three" style={{ gridTemplateColumns: "340px minmax(0, 1fr) 360px" }}>
+    <div className="three" style={{ gridTemplateColumns: "300px minmax(0, 1fr) 280px" }}>
       <div className="stack" style={{ overflow: "hidden" }}>
         <QuickGate siteId={siteId} onCheckIn={(plate) => setCheckInFor({ plate })} onCheckedOut={() => setSelectedId(null)} />
         <Panel
           scroll
           className="grow"
+          actions={
+            side === "appointments" ? (
+              <button className="btn btn-ghost btn-sm" onClick={() => setBooking(true)}>
+                Book
+              </button>
+            ) : null
+          }
           title={
             <Tabs<Side>
               value={side}
               onChange={setSide}
               options={[
                 { id: "expected", label: "Expected", badge: expected.data?.length },
+                {
+                  id: "appointments",
+                  label: "Appointments",
+                  badge: (appointments.data ?? []).filter((a) => a.status === "scheduled").length || undefined,
+                },
                 { id: "log", label: "Gate log" },
               ]}
             />
           }
         >
-          {side === "expected" ? (
+          {side === "appointments" ? (
+            appointments.data?.length ? (
+              <div className="list">
+                {appointments.data.map((a) => (
+                  <div key={a.id} className="item">
+                    <div className="row-between">
+                      <span className="item-title mono">{a.plate}</span>
+                      <Pill value={a.status} />
+                    </div>
+                    <div className="item-meta">
+                      {a.carrier ? `${a.carrier} · ` : ""}{a.purpose} {a.locationCode ? `· Door ${a.locationCode}` : ""}
+                    </div>
+                    <div className="row-between" style={{ marginTop: 4 }}>
+                      <span className="muted small">
+                        {fmtTime(a.windowStart)} – {fmtTime(a.windowEnd)} ({fromNow(a.windowStart, now)})
+                      </span>
+                      {a.status === "scheduled" ? (
+                        <div className="row gap-sm">
+                          <button
+                            className="btn btn-primary btn-sm"
+                            style={{ padding: "2px 8px" }}
+                            onClick={() => setCheckInFor({ plate: a.plate, tripId: a.tripId ?? undefined })}
+                          >
+                            Check in
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: "2px 8px" }}
+                            disabled={busy}
+                            onClick={() => run(() => api.post(`/gate/appointments/${a.id}/cancel`), `${a.code} cancelled`)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty>No dock appointments. Click "Book" to schedule one.</Empty>
+            )
+          ) : side === "expected" ? (
             expected.data?.length ? (
               <div className="list">
                 {expected.data.map((t) => (
                   <button
                     key={`${t.id}-${t.direction}`}
-                    className={`item${t.delayed ? " is-alert" : ""}`}
+                    type="button"
+                    className={`gate-expected-item${t.delayed ? " is-delayed" : ""}`}
                     disabled={!t.plate}
                     onClick={() => t.plate && setCheckInFor({ plate: t.plate, tripId: t.id })}
                   >
                     <div className="row-between">
-                      <span className="item-title mono">{t.plate ?? "No vehicle yet"}</span>
-                      <span className={`dir-tag dir-${t.direction}`}>{t.direction === "arriving" ? "Arriving" : "Collecting"}</span>
+                      <span className="gate-expected-plate">{t.plate ?? "No vehicle yet"}</span>
+                      <span className={`dir-badge ${t.direction === "arriving" ? "is-arriving" : "is-collecting"}`}>
+                        {t.direction === "arriving" ? "Arriving" : "Collecting"}
+                      </span>
                     </div>
-                    <div className="item-meta">
+                    <div className="gate-expected-route">
                       {t.code} · {refs.siteCode(t.originSiteId)} → {refs.siteCode(t.destinationSiteId)} · {refs.driverName(t.driverId)}
                     </div>
-                    <div className="row-between">
-                      <span className="item-meta">
+                    <div className="gate-expected-footer">
+                      <span className="muted small">
                         {t.direction === "arriving"
                           ? t.status === "in_transit"
                             ? `ETA ${fmtTime(t.etaAt)} (${fromNow(t.etaAt, now)})`
                             : `Not departed · due ${fmtTime(t.plannedArrival)}`
                           : `Departs ${fmtTime(t.plannedDeparture)} (${fromNow(t.plannedDeparture, now)})`}
                       </span>
-                      {t.delayed ? <Pill tone="danger">+{t.delayMinutes}m</Pill> : <Pill value={t.status} />}
+                      {t.delayed ? (
+                        <span className="live-badge-delay">⏱ +{t.delayMinutes}m</span>
+                      ) : (
+                        <Pill value={t.status} />
+                      )}
                     </div>
                   </button>
                 ))}
@@ -176,6 +251,7 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
               layout={board.data.layout}
               locations={board.data.locations}
               now={now}
+              cellSize={cellSize}
               highlight={highlight}
               onCellClick={(_, locs) => onCell(locs)}
             />
@@ -191,20 +267,32 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
         ) : null}
         <Panel title={`On site (${visits.data?.length ?? 0})`} scroll className="grow">
           {visits.data?.length ? (
-            <div className="list">
-              {visits.data.map((v) => (
-                <button key={v.id} className={`item${v.id === selectedId ? " is-selected" : ""}${v.tripId && v.dwellMinutes > 240 ? " is-alert" : ""}`} onClick={() => setSelectedId(v.id)}>
-                  <div className="row-between">
-                    <span className="item-title mono">{v.plate}</span>
-                    <Pill value={v.status} />
-                  </div>
-                  <div className="item-meta">
-                    {v.dock ? `Dock ${v.dock.code} · ${v.dock.purpose}` : v.yardCode ? `Yard ${v.yardCode}` : "No slot"}
-                    {v.tripCode ? ` · ${v.tripCode}` : ""}
-                  </div>
-                  <div className="item-meta">{formatDuration(v.dwellMinutes)} on site</div>
-                </button>
-              ))}
+            <div className="on-site-truck-list">
+              {visits.data.map((v) => {
+                const isInYard = v.status === "in_yard" || !v.dock;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    className={`on-site-truck-card${v.id === selectedId ? " is-selected" : ""}`}
+                    onClick={() => setSelectedId(v.id === selectedId ? null : v.id)}
+                  >
+                    <div className="on-site-truck-row">
+                      <span className="on-site-truck-plate">{v.plate}</span>
+                      <span className={`on-site-badge ${isInYard ? "is-in-yard" : "is-at-dock"}`}>
+                        <span className="on-site-badge-dot" />
+                        {isInYard ? "In yard" : "At dock"}
+                      </span>
+                    </div>
+                    <div className="on-site-truck-meta">
+                      {v.dock ? `Dock ${v.dock.code} · ${v.dock.purpose || "Active"}` : v.yardCode ? `Yard ${v.yardCode}` : "No slot"}
+                      {v.tripCode ? ` · ${v.tripCode}` : ""}
+                      {" · "}
+                      {formatDuration(v.dwellMinutes)} on site
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <Empty>Yard is empty</Empty>
@@ -225,7 +313,111 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
           }}
         />
       ) : null}
+      {booking && board.data ? (
+        <NewAppointmentModal
+          siteId={siteId}
+          board={board.data}
+          onClose={() => setBooking(false)}
+          onCreated={() => setBooking(false)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function NewAppointmentModal({
+  siteId,
+  board,
+  onClose,
+  onCreated,
+}: {
+  siteId: string;
+  board: SiteBoard;
+  onClose: () => void;
+  onCreated: (a: DockAppointment) => void;
+}) {
+  const { busy, run } = useAction();
+  const [plate, setPlate] = useState("");
+  const [carrier, setCarrier] = useState("");
+  const [purpose, setPurpose] = useState<DockPurpose>("unload");
+  const [locationId, setLocationId] = useState("");
+  const now = new Date();
+  const [start, setStart] = useState(toLocalInput(new Date(now.getTime() + 30 * 60_000)));
+  const [end, setEnd] = useState(toLocalInput(new Date(now.getTime() + 90 * 60_000)));
+  const [notes, setNotes] = useState("");
+  const docks = board.locations.filter((l) => l.kind === "dock_door" && l.active);
+
+  return (
+    <Modal title="Schedule dock appointment" onClose={onClose}>
+      <div className="form">
+        <div className="form-2">
+          <Field label="Plate">
+            <input
+              className="input plate-input"
+              placeholder="PLATE"
+              value={plate}
+              onChange={(e) => setPlate(e.target.value.toUpperCase())}
+            />
+          </Field>
+          <Field label="Carrier">
+            <input
+              className="input"
+              placeholder="e.g. Swift, DHL"
+              value={carrier}
+              onChange={(e) => setCarrier(e.target.value)}
+            />
+          </Field>
+          <Field label="Purpose">
+            <select className="select" value={purpose} onChange={(e) => setPurpose(e.target.value as DockPurpose)}>
+              <option value="unload">Unload (Inbound)</option>
+              <option value="load">Load (Outbound)</option>
+            </select>
+          </Field>
+          <Field label="Reserved dock door" hint="Optional pre-assigned door">
+            <select className="select" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+              <option value="">Auto-assign at gate</option>
+              {docks.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.code}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Window start">
+            <input className="input" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
+          </Field>
+          <Field label="Window end">
+            <input className="input" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Notes">
+          <input className="input" placeholder="Appointment notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Field>
+        <button
+          className="btn btn-primary btn-lg"
+          disabled={!plate || busy}
+          onClick={async () => {
+            const a = await run(
+              () =>
+                api.post<DockAppointment>("/gate/appointments", {
+                  siteId,
+                  plate,
+                  carrier,
+                  purpose,
+                  locationId: locationId || undefined,
+                  windowStart: fromLocalInput(start),
+                  windowEnd: fromLocalInput(end),
+                  notes,
+                }),
+              (res) => `Appointment ${res.code} booked for ${res.plate}`,
+            );
+            if (a) onCreated(a);
+          }}
+        >
+          Book appointment
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -243,11 +435,12 @@ function QuickGate({ siteId, onCheckIn, onCheckedOut }: { siteId: string; onChec
           onKeyDown={(e) => e.key === "Enter" && plate && onCheckIn(plate)}
         />
         <div className="form-2">
-          <button className="btn btn-primary btn-lg" disabled={!plate} onClick={() => onCheckIn(plate)}>
+          <button className="btn btn-primary" style={{ padding: "8px 14px", fontWeight: 600 }} disabled={!plate} onClick={() => onCheckIn(plate)}>
             Check in
           </button>
           <button
-            className="btn btn-warn btn-lg"
+            className="btn btn-gate-checkout"
+            style={{ padding: "8px 14px" }}
             disabled={!plate || busy}
             onClick={async () => {
               const v = await run(() => api.post<GateVisit>("/gate/check-out", { siteId, plate }), (r) => `${r.plate} checked out`);

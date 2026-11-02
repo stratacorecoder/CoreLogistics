@@ -1,4 +1,4 @@
-import { ChevronDown, Eye, EyeOff, Lock, LogIn, User } from "lucide-react";
+import { ChevronDown, Eye, EyeOff, Lock, User } from "lucide-react";
 import { useState } from "react";
 import { DEMO_ACCOUNTS } from "../../auth.js";
 
@@ -41,122 +41,160 @@ export function SignIn2({
   };
 
   return (
-    <div className="signin-minimal min-h-full w-full flex items-center justify-center bg-white z-1 overflow-auto py-10 px-6">
-      <form
-        className="w-full max-w-xl bg-gradient-to-b from-sky-50/50 to-white rounded-[2rem] shadow-xl p-10 sm:p-12 flex flex-col items-center border border-blue-100 text-black"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void handleSignIn();
-        }}
-      >
-        <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-white mb-7 shadow-lg">
-          <LogIn className="w-8 h-8 text-black" />
-        </div>
-        <h2 className="text-3xl font-semibold mb-3 text-center tracking-tight">Sign in with your account</h2>
-        <p className="text-gray-500 text-base mb-8 text-center leading-relaxed max-w-md">
-          Use the username and password issued for your job. There is no self-signup.
-        </p>
-        <div className="w-full flex flex-col gap-4 mb-2">
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-              <User className="w-5 h-5" aria-hidden />
-            </span>
-            <input
-              placeholder="Username"
-              type="text"
-              name="username"
-              autoComplete="username"
-              autoFocus
-              aria-label="Username"
-              value={username}
-              className="w-full pl-12 pr-4 py-3.5 min-h-12 rounded-2xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 text-black text-base"
-              onChange={(e) => {
-                setUsername(e.target.value);
-                setError("");
-              }}
-            />
+    <div className="signin-minimal min-h-full w-full flex items-center justify-center bg-[#07090e] z-1 overflow-auto py-12 px-6">
+      <div className="w-full max-w-lg bg-[#0e131b] rounded-xl border border-[#1c2433] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.8),inset_0_1px_0_0_rgba(255,255,255,0.06)] p-8 sm:p-10 flex flex-col">
+        {/* Brand Header */}
+        <div className="flex items-center justify-between border-b border-[#1c2433] pb-6 mb-7">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className="w-7 h-7 rounded bg-blue-600 text-white font-mono font-bold text-xs flex items-center justify-center border border-blue-400/30">
+                CL
+              </span>
+              <span className="font-semibold text-lg text-white tracking-tight">CoreLogistics</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Fleet, yard & warehouse operations console</p>
           </div>
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-              <Lock className="w-5 h-5" aria-hidden />
-            </span>
-            <input
-              placeholder="Password"
-              type={showPassword ? "text" : "password"}
-              name="password"
-              autoComplete="current-password"
-              aria-label="Password"
-              value={password}
-              className="w-full pl-12 pr-12 py-3.5 min-h-12 rounded-2xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-gray-50 text-black text-base"
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setError("");
-              }}
-            />
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer w-10 h-10 flex items-center justify-center"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              onClick={() => setShowPassword((v) => !v)}
-            >
-              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
-          </div>
-          {error ? <p className="text-base text-red-500 text-left">{error}</p> : null}
+          <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-[#161f2e] text-blue-400 border border-[#233147]">
+            v2.4·PROD
+          </span>
         </div>
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full font-medium py-3.5 min-h-12 rounded-2xl shadow hover:brightness-105 cursor-pointer transition mb-5 mt-3 text-base disabled:opacity-60 disabled:cursor-default"
-          style={{ background: "linear-gradient(to bottom, #374151, #111827)", color: "#fff" }}
+
+        <form
+          className="flex flex-col"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSignIn();
+          }}
         >
-          {busy ? "Signing in…" : "Get Started"}
-        </button>
-        <div className="flex items-center w-full my-3">
-          <div className="flex-grow border-t border-dashed border-gray-200" />
-          <span className="mx-3 text-sm text-gray-400">Demo accounts</span>
-          <div className="flex-grow border-t border-dashed border-gray-200" />
-        </div>
-        <div className="flex gap-3 w-full flex-wrap justify-center mt-2">
-          {PRIMARY.map((a) => (
-            <button
-              key={a.username}
-              type="button"
-              className="flex items-center justify-center min-h-12 px-5 rounded-2xl border border-gray-200 bg-white hover:bg-gray-100 transition text-sm font-medium text-gray-700"
-              onClick={() => {
-                fillAccount(a.username, a.password);
-                setMorePick("");
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5" htmlFor="signin-username">
+                Operator ID
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500">
+                  <User className="w-4 h-4" aria-hidden />
+                </span>
+                <input
+                  id="signin-username"
+                  placeholder="Username"
+                  type="text"
+                  name="username"
+                  autoComplete="username"
+                  autoFocus
+                  aria-label="Operator ID"
+                  value={username}
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-lg border border-[#222c3d] focus:outline-none focus:border-blue-500 focus:bg-[#07090e] bg-[#0a0e16] text-white placeholder-slate-500 text-sm font-sans transition-colors"
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    setError("");
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5" htmlFor="signin-password">
+                Passcode
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500">
+                  <Lock className="w-4 h-4" aria-hidden />
+                </span>
+                <input
+                  id="signin-password"
+                  placeholder="Password"
+                  type={showPassword ? "text" : "password"}
+                  name="password"
+                  autoComplete="current-password"
+                  aria-label="Passcode"
+                  value={password}
+                  className="w-full pl-10 pr-10 py-2.5 rounded-lg border border-[#222c3d] focus:outline-none focus:border-blue-500 focus:bg-[#07090e] bg-[#0a0e16] text-white placeholder-slate-500 text-sm font-sans transition-colors"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError("");
+                  }}
+                />
+                <button
+                  type="button"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer p-1 rounded"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((v) => !v)}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {error ? (
+              <div className="p-3 rounded-md bg-rose-950/40 border border-rose-900/60 text-xs font-medium text-rose-300">
+                {error}
+              </div>
+            ) : null}
+          </div>
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full font-medium py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-sm shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)] border border-blue-500 transition-all cursor-pointer mt-5 disabled:opacity-50 disabled:cursor-default"
+          >
+            {busy ? "Authenticating Session…" : "Sign In to Terminal"}
+          </button>
+        </form>
+
+        {/* Demo Fast Logins */}
+        <div className="mt-8 pt-6 border-t border-[#1c2433]">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Assigned Demo Stations
+            </span>
+            <span className="text-[10px] text-slate-500 font-mono">1-CLICK LOGIN</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {PRIMARY.map((a) => (
+              <button
+                key={a.username}
+                type="button"
+                className="flex flex-col items-start p-2.5 rounded-lg border border-[#1e2738] bg-[#0a0e16] hover:bg-[#121926] hover:border-blue-500/50 transition-colors text-left cursor-pointer group"
+                onClick={() => {
+                  fillAccount(a.username, a.password);
+                  setMorePick("");
+                }}
+              >
+                <span className="text-xs font-semibold text-white group-hover:text-blue-400 transition-colors">
+                  {a.title}
+                </span>
+                <span className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                  {a.name} ({a.username})
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="relative mt-3">
+            <select
+              aria-label="More fleet driver accounts"
+              value={morePick}
+              className="w-full appearance-none py-2 pl-3 pr-8 rounded-lg border border-[#1e2738] bg-[#0a0e16] text-xs text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+              onChange={(e) => {
+                const id = e.target.value;
+                setMorePick(id);
+                const account = MORE.find((a) => a.username === id);
+                if (account) fillAccount(account.username, account.password);
               }}
             >
-              {a.name.split(" ")[0]}
-            </button>
-          ))}
+              <option value="" className="bg-[#0e131b] text-slate-400">Select active truck driver account…</option>
+              {MORE.map((a) => (
+                <option key={a.username} value={a.username} className="bg-[#0e131b] text-slate-200">
+                  {a.name} · {a.username} ({a.title})
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" aria-hidden />
+          </div>
         </div>
-        <div className="relative w-full mt-4">
-          <select
-            aria-label="More demo accounts"
-            value={morePick}
-            className="w-full appearance-none min-h-12 pl-4 pr-12 py-3 rounded-2xl border border-gray-200 bg-white text-base text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 cursor-pointer"
-            onChange={(e) => {
-              const id = e.target.value;
-              setMorePick(id);
-              const account = MORE.find((a) => a.username === id);
-              if (account) fillAccount(account.username, account.password);
-            }}
-          >
-            <option value="">More accounts…</option>
-            {MORE.map((a) => (
-              <option key={a.username} value={a.username}>
-                {a.name} · {a.username}/{a.password} · {a.title}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" aria-hidden />
-        </div>
-        <p className="text-sm text-gray-400 mt-4 text-center leading-snug">
-          ava/planner · rico/yard · mina/floor · drivers use drive
-        </p>
-      </form>
+      </div>
     </div>
   );
 }

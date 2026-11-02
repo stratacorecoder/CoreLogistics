@@ -1,7 +1,10 @@
 import {
+  AppointmentStatusSchema,
   AssignDockInputSchema,
   CheckInInputSchema,
   CheckOutInputSchema,
+  DockAppointmentInputSchema,
+  DockAppointmentSchema,
   DockSuggestionSchema,
   ExpectedTripSchema,
   GateVisitSchema,
@@ -16,10 +19,13 @@ import { z } from "zod";
 import { ctxOf } from "../../events.js";
 import {
   assignDock,
+  cancelAppointment,
   checkIn,
   checkOut,
+  createAppointment,
   expectedAtSite,
   getVisit,
+  listAppointments,
   listVisits,
   moveInYard,
   releaseDock,
@@ -30,6 +36,46 @@ export default async function gateRoutes(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
   const tags = ["gate"];
   const visit = { response: { 200: GateVisitSchema } };
+
+  r.get(
+    "/gate/appointments",
+    {
+      schema: {
+        tags,
+        summary: "List dock appointments",
+        querystring: z.object({
+          siteId: z.string().optional(),
+          status: AppointmentStatusSchema.optional(),
+        }),
+        response: { 200: z.array(DockAppointmentSchema) },
+      },
+    },
+    async (req) => listAppointments(req.query.siteId, req.query.status),
+  );
+  r.post(
+    "/gate/appointments",
+    {
+      schema: {
+        tags,
+        summary: "Schedule a dock appointment",
+        body: DockAppointmentInputSchema,
+        response: { 200: DockAppointmentSchema },
+      },
+    },
+    async (req) => createAppointment(req.body, ctxOf(req)),
+  );
+  r.post(
+    "/gate/appointments/:id/cancel",
+    {
+      schema: {
+        tags,
+        summary: "Cancel a dock appointment",
+        params: IdParamsSchema,
+        response: { 200: DockAppointmentSchema },
+      },
+    },
+    async (req) => cancelAppointment(req.params.id, ctxOf(req)),
+  );
 
   r.get(
     "/gate/expected",

@@ -13,7 +13,7 @@ import {
   type SortRule,
 } from "@corelogistics/contracts";
 import type { z } from "zod";
-import { many, newId, nextCode, one, placeholders, run, splitList, toBool, tx, type Row } from "../../db.js";
+import { many, newId, nextCode, nowIso, one, placeholders, run, splitList, toBool, tx, type Row } from "../../db.js";
 import { badRequest, conflict, must, notFound } from "../../errors.js";
 import { at, emit, type Ctx } from "../../events.js";
 import { getLocation, getSite } from "../sites/service.js";
@@ -82,6 +82,8 @@ export function toHu(r: Row): HandlingUnit {
     shipmentId: r.shipment_id ?? null,
     weightKg: Math.round(r.qty * r.unit_weight_kg * 10) / 10,
     volumeM3: Math.round(r.qty * r.unit_volume_m3 * 1000) / 1000,
+    lotNumber: r.lot_number ?? null,
+    expiryDate: r.expiry_date ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -130,6 +132,8 @@ export function insertHu(
     destinationSiteId?: string | null;
     receiptId?: string | null;
     orderId?: string | null;
+    lotNumber?: string | null;
+    expiryDate?: string | null;
   },
 ): HandlingUnit {
   const code = h.code?.trim().toUpperCase() || nextCode("hu", "HU", 6, 100000);
@@ -137,8 +141,8 @@ export function insertHu(
   const id = newId("hu");
   const when = at(ctx);
   run(
-    `INSERT INTO handling_units (id, code, kind, site_id, sku_id, qty, status, location_id, destination_site_id, receipt_id, order_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO handling_units (id, code, kind, site_id, sku_id, qty, status, location_id, destination_site_id, receipt_id, order_id, lot_number, expiry_date, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       code,
@@ -151,6 +155,8 @@ export function insertHu(
       h.destinationSiteId ?? null,
       h.receiptId ?? null,
       h.orderId ?? null,
+      h.lotNumber ?? null,
+      h.expiryDate ?? null,
       when,
       when,
     ],
@@ -178,11 +184,16 @@ export function listInventory(siteId?: string, skuId?: string): InventoryRow[] {
     where.push("i.sku_id = ?");
     params.push(skuId);
   }
+  const today = nowIso().slice(0, 10);
   return many(
-    `SELECT i.*, l.code AS location_code, l.zone, s.code AS sku_code, s.name AS sku_name
+    `SELECT i.*, l.code AS location_code, l.zone, s.code AS sku_code, s.name AS sku_name,
+            (SELECT MIN(h.expiry_date) FROM handling_units h
+             WHERE h.location_id = i.location_id AND h.sku_id = i.sku_id AND h.status = 'stored' AND h.expiry_date IS NOT NULL) AS earliest_expiry,
+            (SELECT COALESCE(SUM(h.qty), 0) FROM handling_units h
+             WHERE h.location_id = i.location_id AND h.sku_id = i.sku_id AND h.status = 'stored' AND h.expiry_date IS NOT NULL AND h.expiry_date < ?) AS expired_qty
      FROM inventory i JOIN locations l ON l.id = i.location_id JOIN skus s ON s.id = i.sku_id
      ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY s.code, l.code`,
-    params,
+    [today, ...params],
   ).map((r) => ({
     siteId: r.site_id,
     locationId: r.location_id,
@@ -192,6 +203,8 @@ export function listInventory(siteId?: string, skuId?: string): InventoryRow[] {
     skuCode: r.sku_code,
     skuName: r.sku_name,
     qty: r.qty,
+    earliestExpiry: r.earliest_expiry ?? null,
+    expiredQty: Number(r.expired_qty || 0),
   }));
 }
 
@@ -316,6 +329,8 @@ export function receive(receiptId: string, input: z.output<typeof ReceiveInputSc
       locationId: dock?.location_id ?? null,
       destinationSiteId: input.destinationSiteId ?? null,
       receiptId: receipt.id,
+      lotNumber: input.lotNumber ?? null,
+      expiryDate: input.expiryDate ?? null,
     });
     const line = receipt.lines.find((l) => l.skuId === sku.id);
     if (line) run("UPDATE receipt_lines SET received_qty = received_qty + ? WHERE id = ?", [input.qty, line.id]);
@@ -327,6 +342,8 @@ export function receive(receiptId: string, input: z.output<typeof ReceiveInputSc
         input.qty,
       ]);
     }
+    const lotDesc = hu.lotNumber ? ` [Lot ${hu.lotNumber}]` : "";
+    const expDesc = hu.expiryDate ? ` [Exp ${hu.expiryDate}]` : "";
     emit(ctx, {
       type: "hu.received",
       siteId: receipt.siteId,
@@ -334,7 +351,8 @@ export function receive(receiptId: string, input: z.output<typeof ReceiveInputSc
       huId: hu.id,
       locationId: hu.locationId,
       entityId: receipt.id,
-      message: `${hu.code}: ${hu.qty} × ${sku.code} received on ${receipt.code}${hu.destinationSiteId ? " (cross-dock)" : ""}`,
+      message: `${hu.code}: ${hu.qty} × ${sku.code}${lotDesc}${expDesc} received on ${receipt.code}${hu.destinationSiteId ? " (cross-dock)" : ""}`,
+      payload: { lotNumber: hu.lotNumber, expiryDate: hu.expiryDate },
     });
     return hu;
   });

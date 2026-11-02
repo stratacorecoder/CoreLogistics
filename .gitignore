@@ -18,6 +18,8 @@ apps/api/openapi.json
 .env
 .env.*
 !.env.example
+.agents/
+.codex/
 
 # OS / editor
 .DS_Store

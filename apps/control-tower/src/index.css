@@ -8,21 +8,21 @@
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
-  padding: 7px 8px;
+  padding: 6px 8px;
   text-align: left;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
+  transition: all 0.1s;
 }
-.palette-item.is-on { border-color: var(--accent); background: var(--selected); }
-.palette-swatch { width: 18px; height: 18px; border-radius: 4px; flex: 0 0 auto; }
-.zone-chip { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); padding: 5px 9px; font-size: 12px; font-weight: 700; cursor: pointer; }
-.zone-chip.is-on { border-color: var(--accent); }
+.palette-item:hover { border-color: var(--line-bright); background: var(--bg-subtle); }
+.palette-item.is-on { border-color: var(--accent); background: var(--selected); font-weight: 600; }
+.palette-swatch { width: 16px; height: 16px; border-radius: 2px; flex: 0 0 auto; }
+.zone-chip { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2); padding: 4px 8px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.zone-chip.is-on { border-color: var(--accent); background: var(--selected); }
 .chart { min-height: 220px; }
 .cap-half { max-height: 55%; flex-shrink: 0; }
-.trip-card { display: grid; gap: 4px; }
-.trip-route { font-size: 13px; font-weight: 650; }
-.key-box { padding: 10px; border-radius: 2px; background: #f4f6f8; border: 1px dashed var(--line); word-break: break-all; color: var(--text); }
-pre.snippet { margin: 0; padding: 10px; border-radius: 2px; background: #f4f6f8; border: 1px solid var(--line); font-size: 11.5px; overflow: auto; color: var(--text); }
+.key-box { padding: 10px; border-radius: var(--radius-sm); background: var(--bg-subtle); border: 1px dashed var(--line-bright); word-break: break-all; color: var(--info); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+pre.snippet { margin: 0; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-subtle); border: 1px solid var(--line); font-size: 12px; overflow: auto; color: var(--text); font-family: "IBM Plex Mono", monospace; }
