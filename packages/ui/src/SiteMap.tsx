@@ -8,7 +8,7 @@ import {
   type LocationStatus,
   type SiteLayout,
 } from "@corelogistics/contracts";
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 export interface MapCell {
   x: number;
@@ -33,6 +33,10 @@ export interface SiteMapProps {
   onCellPointerEnter?: (cell: MapCell) => void;
   now?: number;
   cellSize?: number;
+  /** Drawn cell width. Defaults to cellSize. */
+  cellWidth?: number;
+  /** Drawn cell height. Defaults to cellSize. */
+  cellHeight?: number;
   showRulers?: boolean;
 }
 
@@ -56,6 +60,8 @@ export function SiteMap({
   onCellPointerEnter,
   now = Date.now(),
   cellSize = 32,
+  cellWidth,
+  cellHeight,
   showRulers = true,
 }: SiteMapProps) {
   const grid = useMemo(() => {
@@ -160,6 +166,8 @@ export function SiteMap({
   };
 
   const rulerColWidth = 26;
+  const col = cellWidth ?? cellSize;
+  const row = cellHeight ?? cellSize;
 
   return (
     <div
@@ -167,11 +175,11 @@ export function SiteMap({
       style={{
         display: "grid",
         gridTemplateColumns: showRulers
-          ? `${rulerColWidth}px repeat(${layout.cols}, ${cellSize}px)`
-          : `repeat(${layout.cols}, ${cellSize}px)`,
+          ? `${rulerColWidth}px repeat(${layout.cols}, ${col}px)`
+          : `repeat(${layout.cols}, ${col}px)`,
         gridTemplateRows: showRulers
-          ? `24px repeat(${layout.rows}, ${cellSize}px) 24px`
-          : `repeat(${layout.rows}, ${cellSize}px)`,
+          ? `22px repeat(${layout.rows}, ${row}px) 22px`
+          : `repeat(${layout.rows}, ${row}px)`,
         gap: "2px",
         width: "max-content",
         margin: "0 auto",
@@ -233,4 +241,38 @@ export function MapLegend({ kinds }: { kinds?: CellKind[] }) {
       </span>
     </div>
   );
+}
+
+/** Grow a live map to its panel. Cells stay square when the column is too narrow to read. */
+export function useFitMapCells(cols: number, rows: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [cell, setCell] = useState({ w: 36, h: 36 });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || cols < 1 || rows < 1) return;
+    const fit = () => {
+      const frame = el.querySelector<HTMLElement>(".site-map-frame");
+      const frameStyle = frame ? getComputedStyle(frame) : null;
+      const padX = frameStyle ? parseFloat(frameStyle.paddingLeft) + parseFloat(frameStyle.paddingRight) : 24;
+      const padY = frameStyle ? parseFloat(frameStyle.paddingTop) + parseFloat(frameStyle.paddingBottom) : 20;
+      const borderX = frameStyle ? parseFloat(frameStyle.borderLeftWidth) + parseFloat(frameStyle.borderRightWidth) : 2;
+      const borderY = frameStyle ? parseFloat(frameStyle.borderTopWidth) + parseFloat(frameStyle.borderBottomWidth) : 2;
+      const gap = 2;
+      const availW = el.clientWidth - padX - borderX - 26 - gap * cols;
+      const availH = el.clientHeight - padY - borderY - 44 - gap * (rows + 1);
+      const rawW = Math.floor(availW / cols);
+      const rawH = Math.floor(availH / rows);
+      if (!Number.isFinite(rawW) || !Number.isFinite(rawH) || rawW < 8 || rawH < 8) return;
+      const w = Math.min(rawW, 72);
+      const h = Math.min(rawW >= 28 ? rawH : rawW, 88);
+      setCell({ w, h });
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [cols, rows]);
+
+  return { ref, cell };
 }

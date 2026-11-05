@@ -1,6 +1,7 @@
 import { ChevronDown, Eye, EyeOff, Lock, User } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { DEMO_ACCOUNTS } from "../../auth.js";
+import { useSignInMotion } from "../../motion.js";
 
 const PRIMARY_IDS = ["ava", "rico", "mina", "jose"];
 const PRIMARY = DEMO_ACCOUNTS.filter((a) => PRIMARY_IDS.includes(a.username));
@@ -17,6 +18,8 @@ export function SignIn2({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [morePick, setMorePick] = useState("");
+  const stageRef = useRef<HTMLDivElement>(null);
+  useSignInMotion(stageRef);
 
   const fillAccount = (username: string, password: string) => {
     setUsername(username);
@@ -41,8 +44,8 @@ export function SignIn2({
   };
 
   return (
-    <div className="signin-minimal min-h-full w-full flex items-center justify-center bg-[#07090e] z-1 overflow-auto py-12 px-6">
-      <div className="w-full max-w-lg bg-[#0e131b] rounded-xl border border-[#1c2433] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.8),inset_0_1px_0_0_rgba(255,255,255,0.06)] p-8 sm:p-10 flex flex-col">
+    <div className="signin-stage" ref={stageRef}>
+      <div className="signin-card">
         {/* Brand Header */}
         <div className="flex items-center justify-between border-b border-[#1c2433] pb-6 mb-7">
           <div>

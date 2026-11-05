@@ -13,7 +13,7 @@
 .drv-hello { font-size: 20px; font-weight: 700; color: var(--text-heading); }
 .trip-sheet { display: grid; gap: 10px; padding: 4px 2px 8px; }
 .trip-next { font-size: 24px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; color: var(--text-heading); }
-.trip-meta-line { color: var(--muted); font-size: 13px; font-family: "IBM Plex Mono", monospace; }
+.trip-meta-line { color: var(--muted); font-size: 13px; font-family: var(--font-mono); }
 .trip-late { color: var(--danger); font-weight: 600; }
 .trip-truck { font-size: 12.5px; }
 .trip-notes { font-size: 13.5px; line-height: 1.4; color: var(--text-muted); }
@@ -30,7 +30,7 @@
 .route-dot.is-done { background: var(--accent); border-color: var(--accent); }
 .route-dot.is-here { border-color: var(--warn); background: var(--warn-subtle); }
 .route-name { font-weight: 600; color: var(--text-heading); }
-.route-meta { color: var(--muted); font-size: 12px; font-family: "IBM Plex Mono", monospace; }
+.route-meta { color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
 .issue-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .issue-btn { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2); padding: 10px; font-weight: 600; cursor: pointer; color: var(--text); font-size: 13px; }
 .issue-btn.is-on { border-color: var(--danger); background: var(--danger-subtle); color: var(--danger); }

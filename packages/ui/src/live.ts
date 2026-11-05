@@ -71,14 +71,17 @@ export function useApi<T>(
   const seq = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
+  const hasData = useRef(false);
+
   const load = useCallback(() => {
     if (!path) return;
     const mine = ++seq.current;
-    setLoading(true);
+    if (!hasData.current) setLoading(true);
     api
       .get<T>(path)
       .then((d) => {
         if (mine !== seq.current) return;
+        hasData.current = true;
         setData(d);
         setError(null);
       })
@@ -91,6 +94,7 @@ export function useApi<T>(
   }, [path]);
 
   useEffect(() => {
+    hasData.current = false;
     setData(undefined);
     load();
   }, [load]);

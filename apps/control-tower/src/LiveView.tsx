@@ -18,6 +18,7 @@ import {
   SiteMap,
   qs,
   useApi,
+  useFitMapCells,
   useNow,
   type MapCell,
   type Refs,
@@ -47,6 +48,8 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
   const [selected, setSelected] = useState<{ cell: MapCell; locs: LocationStatus[] } | null>(null);
 
   const s = stats.data;
+  const layout = board.data?.layout;
+  const { ref: mapRef, cell } = useFitMapCells(layout?.cols ?? 0, layout?.rows ?? 0);
   const selectedVisit =
     selected &&
     visits.data?.find(
@@ -56,7 +59,7 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
     );
 
   return (
-    <div className="three" style={{ gridTemplateColumns: "250px minmax(0, 1fr) 250px" }}>
+    <div className="three live-board">
       <div className="stack" style={{ overflow: "auto" }}>
         <div className="live-kpi-grid">
           <div className="live-kpi-card">
@@ -144,15 +147,17 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
       <Panel
         title={board.data ? `${board.data.site.code} · ${board.data.site.name}` : "Site"}
         actions={<MapLegend />}
-        className="grow"
+        className="grow live-map-panel"
       >
         <ErrorNote error={board.error} />
         {board.data && board.data.layout.cells.length ? (
-          <div className="map-wrap" style={{ maxHeight: "calc(100vh - 160px)" }}>
+          <div className="map-wrap live-map-wrap" ref={mapRef}>
             <SiteMap
               layout={board.data.layout}
               locations={board.data.locations}
               now={now}
+              cellWidth={cell.w}
+              cellHeight={cell.h}
               selectedKey={selected ? `${selected.cell.x}:${selected.cell.y}` : null}
               onCellClick={(cell, locs) => setSelected(locs.length ? { cell, locs } : null)}
             />
@@ -162,7 +167,7 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
         ) : null}
       </Panel>
 
-      <div className="stack" style={{ overflow: "auto" }}>
+      <div className="stack live-rail">
         {selected ? (
           <Panel title={`${humanize(selected.cell.kind)} ${selected.locs[0]?.code.replace(/-\d+$/, "") ?? ""}`}>
             {selectedVisit ? (
@@ -198,7 +203,7 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
           </Panel>
         ) : null}
 
-        <Panel title="Trips touching this site" scroll className="cap-half">
+        <Panel title="Trips touching this site" scroll className="live-trips-panel">
           {trips.data?.length ? (
             <div className="live-trips-list">
               {trips.data.map((t) => (
@@ -231,12 +236,7 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
           )}
         </Panel>
 
-        <Panel
-          title="Activity"
-          actions={<span className="activity-feed-badge">Feed</span>}
-          scroll
-          className="grow"
-        >
+        <Panel title="Activity" scroll className="grow">
           {events.data?.length ? (
             <div className="activity-timeline-list">
               {events.data.map((e) => (
