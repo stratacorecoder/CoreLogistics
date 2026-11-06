@@ -22,6 +22,12 @@ colors:
   glass-subtle: "rgba(255, 255, 255, 0.46)"
   obsidian: "rgba(15, 21, 35, 0.72)"
   on-accent: "#ffffff"
+  map-gate: "#0066cc"
+  map-dock: "#157a34"
+  map-staging: "#c2410c"
+  map-office: "#5856d6"
+  map-rack: "#7c3aed"
+  map-busy: "#c2410c"
 typography:
   body:
     fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, Inter, sans-serif"
@@ -106,7 +112,7 @@ UI text is the system face, with Inter as the webfont. Data text is JetBrains Mo
 
 ## Layout
 
-The signed-in tower is a floating sidebar and a glass header inset 12px from the mesh. Live is three columns: KPIs and who is on site, the spatial map, then trips and activity. Dispatch is a filter bar over five pipeline columns. Warehouse and gate keep a single top bar; the floor uses a larger type size.
+The signed-in tower is a floating sidebar and a glass header inset 12px from the mesh. Live is three columns: KPIs and who is on site, the spatial map, then trips and activity. Dispatch is a filter bar over five pipeline columns. Below 1100px the sidebar becomes a horizontal strip and those boards stack so the map stays on screen. Warehouse and gate keep a single top bar; the floor uses a larger type size.
 
 ## Elevation & Depth
 
@@ -123,7 +129,7 @@ Shells are 20–24px. Panels are 20px. Controls and inputs are 12px. Status chip
 - Panel: default glass, title and actions on one row that may wrap.
 - Primary button: blue gradient, white label, press scales to 0.98.
 - Trip card and KPI: strong glass, 16px radius. Delayed and warning states use an inset ring, not a left bar.
-- Map cell: lifts on hover. Occupied yard slots are orange; docks are green; gates are blue.
+- Map cell: lifts slightly on hover. Occupied yard slots are orange; docks and gates use the map tokens, darkened so white labels clear contrast.
 
 ## Do's and Don'ts
 

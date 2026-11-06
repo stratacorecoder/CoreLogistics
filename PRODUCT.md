@@ -36,11 +36,11 @@ Operators work at a desk (tower) or on the floor and in a cab (warehouse, gate, 
 
 ## Brand Commitments
 
-The visual system is the Apple Liquid Glass control tower in `d:\New folder (2)\testing.html`, which the user made binding: ambient mesh, frosted panels, Apple system hues, floating sidebar, and a dark glass sign-in card. That material is shared by every app. Control tower screen composition follows the mock. Warehouse, gate, and driver keep their task layouts inside the shared chrome.
+The visual system is the Apple Liquid Glass control tower the team made binding: ambient mesh, frosted panels, Apple system hues, floating sidebar, and a dark glass sign-in card. That material is shared by every app. Control tower screen composition follows that mock. Warehouse, gate, and driver keep their task layouts inside the shared chrome.
 
 ## Evidence on Hand
 
-Working React apps under `apps/control-tower`, `apps/gate`, `apps/warehouse`, and `apps/driver`, with shared UI in `packages/ui`. The liquid-glass reference is the HTML mock named above. Do not invent customers, benchmarks, or prices.
+Working React apps under `apps/control-tower`, `apps/gate`, `apps/warehouse`, and `apps/driver`, with shared UI in `packages/ui`. The liquid-glass reference is the control-tower mock the team already accepted. Do not invent customers, benchmarks, or prices.
 
 ## Product Principles
 

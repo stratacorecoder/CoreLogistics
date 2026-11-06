@@ -92,8 +92,8 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
                     <YAxis allowDecimals={false} {...chart.axis} />
                     <Tooltip {...chart.tooltip} cursor={{ fill: "rgba(0,122,255,0.08)" }} />
                     <Legend />
-                    <Bar dataKey="received" name="Received" fill="#0066cc" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="shipped" name="Shipped" fill="#157a34" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="received" name="Received" fill="var(--map-gate)" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="shipped" name="Shipped" fill="var(--map-dock)" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -107,8 +107,8 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
                     <YAxis allowDecimals={false} {...chart.axis} />
                     <Tooltip {...chart.tooltip} />
                     <Legend />
-                    <Line type="monotone" dataKey="gateIn" name="In" stroke="#0066cc" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="gateOut" name="Out" stroke="#c2410c" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="gateIn" name="In" stroke="var(--map-gate)" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="gateOut" name="Out" stroke="var(--map-staging)" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

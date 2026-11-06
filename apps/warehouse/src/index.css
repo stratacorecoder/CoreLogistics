@@ -232,7 +232,6 @@
   height: 100%;
   border-radius: 9999px;
   background: var(--accent);
-  transition: width 0.25s ease;
 }
 .wh-rc-progress-fill.is-ok {
   background: var(--ok);
@@ -345,7 +344,6 @@
   height: 100%;
   border-radius: 9999px;
   background: var(--muted);
-  transition: width 0.25s ease;
 }
 .wh-mini-bar-fill.is-accent {
   background: var(--accent);

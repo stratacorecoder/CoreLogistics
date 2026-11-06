@@ -1,5 +1,14 @@
 /* Designer View ------------------------------------------------------------- */
 
+.designer-split {
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(200px, 250px);
+}
+@media (max-width: 1100px) {
+  .designer-split {
+    grid-template-columns: 1fr;
+  }
+}
+
 .designer-sidebar-section {
   display: flex;
   flex-direction: column;
@@ -246,13 +255,33 @@
   gap: 12px;
   padding: 4px 2px 2px;
 }
+@media (max-width: 1100px) {
+  .live-board {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+  .live-map-panel {
+    height: auto;
+    min-height: 420px;
+  }
+  .live-rail {
+    overflow: visible;
+  }
+  .stack.live-rail > .panel.live-trips-panel {
+    max-height: none;
+  }
+}
 .live-rail {
   overflow: hidden;
   min-height: 0;
 }
-.live-trips-panel {
+.stack.live-rail > .panel.live-trips-panel {
   flex: 0 1 auto;
   max-height: 42%;
+  min-height: 0;
+}
+.stack.live-rail > .panel.grow {
+  flex: 1 1 auto;
   min-height: 0;
 }
 .live-map-panel {

@@ -195,7 +195,12 @@ export function ThemeToggle() {
   }, [theme]);
 
   const toggle = () => {
-    wipe(theme === "dark" ? "light" : "dark", () => setTheme((t) => (t === "dark" ? "light" : "dark")));
+    const next = theme === "dark" ? "light" : "dark";
+    wipe(next, () => {
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("corelogistics:theme", next);
+      setTheme(next);
+    });
   };
 
   return (

@@ -39,15 +39,15 @@ const DESIGNER_TOOLS: DesignerToolDef[] = [
   { id: "select", label: "Select", color: "#94a3b8" },
   { id: "empty", label: "Empty", isOutline: true },
   { id: "road", label: "Road", color: "var(--bg-subtle)" },
-  { id: "gate", label: "Gate", color: "#2563eb" },
-  { id: "dock_door", label: "Dock door", color: "#16a34a" },
+  { id: "gate", label: "Gate", color: "var(--map-gate)" },
+  { id: "dock_door", label: "Dock door", color: "var(--map-dock)" },
   { id: "yard_slot", label: "Yard slot", isOutline: true },
-  { id: "staging", label: "Staging", color: "#b45309" },
-  { id: "sort_lane", label: "Sort lane", color: "#312e81" },
-  { id: "rack", label: "Rack", color: "#7c3aed" },
+  { id: "staging", label: "Staging", color: "var(--map-staging)" },
+  { id: "sort_lane", label: "Sort lane", color: "var(--map-office)" },
+  { id: "rack", label: "Rack", color: "var(--map-rack)" },
   { id: "aisle", label: "Aisle", color: "var(--panel-3)" },
   { id: "wall", label: "Wall", color: "#1e293b" },
-  { id: "office", label: "Office", color: "#312e81" },
+  { id: "office", label: "Office", color: "var(--map-office)" },
 ];
 
 export function DesignerView({ siteId }: { siteId: string }) {
@@ -159,7 +159,7 @@ export function DesignerView({ siteId }: { siteId: string }) {
   };
 
   return (
-    <div className="split" style={{ gridTemplateColumns: "250px minmax(0, 1fr) 250px" }}>
+    <div className="split designer-split">
       <Panel title="Palette" scroll>
         <div className="designer-sidebar-section">
           <div className="designer-section-title">Brush & Placement Tools</div>

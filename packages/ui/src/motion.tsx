@@ -1,6 +1,6 @@
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { useRef, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 gsap.registerPlugin(useGSAP);
 
@@ -128,15 +128,33 @@ export function useSignInMotion(scope: RefObject<HTMLElement | null>) {
 
 export function useThemeWipe(scope: RefObject<HTMLButtonElement | null>) {
   const busy = useRef(false);
-  const { contextSafe } = useGSAP(
-    () => () => {
-      document.querySelectorAll(".theme-wipe").forEach((node) => node.remove());
-      busy.current = false;
-    },
-    { scope },
-  );
+  const veilRef = useRef<HTMLDivElement | null>(null);
+  const pendingApply = useRef<(() => void) | null>(null);
+  const expandTween = useRef<gsap.core.Tween | null>(null);
+  const fadeTween = useRef<gsap.core.Tween | null>(null);
 
-  return contextSafe((next: "light" | "dark", apply: () => void) => {
+  useEffect(() => {
+    return () => {
+      const pending = pendingApply.current;
+      const expand = expandTween.current;
+      const fade = fadeTween.current;
+      pendingApply.current = null;
+      expandTween.current = null;
+      fadeTween.current = null;
+      expand?.eventCallback("onComplete", null);
+      expand?.eventCallback("onInterrupt", null);
+      fade?.eventCallback("onComplete", null);
+      fade?.eventCallback("onInterrupt", null);
+      expand?.kill();
+      fade?.kill();
+      veilRef.current?.remove();
+      veilRef.current = null;
+      busy.current = false;
+      pending?.();
+    };
+  }, []);
+
+  return (next: "light" | "dark", apply: () => void) => {
     const button = scope.current;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!button || reduce || busy.current) {
@@ -144,6 +162,16 @@ export function useThemeWipe(scope: RefObject<HTMLButtonElement | null>) {
       return;
     }
     busy.current = true;
+    let applied = false;
+    const applyOnce = () => {
+      if (applied) return;
+      applied = true;
+      pendingApply.current = null;
+      apply();
+    };
+    pendingApply.current = applyOnce;
+    let fading = false;
+
     const rect = button.getBoundingClientRect();
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
@@ -152,6 +180,27 @@ export function useThemeWipe(scope: RefObject<HTMLButtonElement | null>) {
     veil.className = `theme-wipe theme-wipe-${next}`;
     veil.style.clipPath = `circle(0px at ${x}px ${y}px)`;
     document.body.appendChild(veil);
+    veilRef.current = veil;
+
+    const dropVeil = () => {
+      fadeTween.current = null;
+      if (veilRef.current === veil) veilRef.current = null;
+      veil.remove();
+      busy.current = false;
+    };
+    const fadeOut = () => {
+      if (fading) return;
+      fading = true;
+      expandTween.current = null;
+      applyOnce();
+      fadeTween.current = gsap.to(veil, {
+        autoAlpha: 0,
+        duration: 0.2,
+        onComplete: dropVeil,
+        onInterrupt: dropVeil,
+      });
+    };
+
     const icon = button.querySelector("svg");
     if (icon) {
       gsap.fromTo(
@@ -160,21 +209,12 @@ export function useThemeWipe(scope: RefObject<HTMLButtonElement | null>) {
         { rotation: next === "dark" ? 90 : -90, scale: 1, duration: 0.4, ease: "power2.out", clearProps: "transform" },
       );
     }
-    gsap.to(veil, {
+    expandTween.current = gsap.to(veil, {
       clipPath: `circle(${radius}px at ${x}px ${y}px)`,
       duration: 0.55,
       ease: "power2.inOut",
-      onComplete: () => {
-        apply();
-        gsap.to(veil, {
-          autoAlpha: 0,
-          duration: 0.2,
-          onComplete: () => {
-            veil.remove();
-            busy.current = false;
-          },
-        });
-      },
+      onComplete: fadeOut,
+      onInterrupt: fadeOut,
     });
-  });
+  };
 }

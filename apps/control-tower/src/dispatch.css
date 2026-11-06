@@ -140,9 +140,7 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   padding: 10px 14px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: var(--glass-solid);
   border: 1px solid var(--glass-border);
   border-radius: 18px;
   box-shadow: var(--glass-shadow);
@@ -220,13 +218,22 @@
 
 .pipeline-board-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   flex: 1;
   min-height: 0;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 8px;
+}
+
+@media (max-width: 1100px) {
+  .pipeline-track-header,
+  .pipeline-board-grid {
+    grid-template-columns: 1fr;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
 }
 
 .pipeline-stage-column {
@@ -256,7 +263,7 @@
 .pipeline-card-wrapper .trip-card {
   flex: 1;
   min-width: 0;
-  height: 176px;
+  min-height: 176px;
 }
 
 .pipeline-flow-arrow {
@@ -287,9 +294,7 @@
   text-align: left;
   border: 1px solid var(--glass-border);
   border-radius: 16px;
-  background: var(--panel-card);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  background: var(--glass-solid-strong);
   box-shadow: var(--card-shadow);
   cursor: pointer;
   transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.16s ease;
