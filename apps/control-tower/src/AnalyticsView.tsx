@@ -49,7 +49,7 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
   const [days, setDays] = useState(7);
   const [scope, setScope] = useState<"site" | "network">("site");
   const q = scope === "site" ? `siteId=${siteId}&days=${days}` : `days=${days}`;
-  const { data, error } = useApi<AnalyticsSummary>(`/analytics/summary?${q}`, { intervalMs: 60_000, live: false });
+  const { data, error } = useApi<AnalyticsSummary>(`/analytics/summary?${q}`, { intervalMs: 60_000 });
   const chart = useChartTheme();
 
   return (

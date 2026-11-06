@@ -1,4 +1,4 @@
-import { formatKg, type HandlingUnit, type Order, type Shipment, type Trip } from "@corelogistics/contracts";
+import { formatKg, type HandlingUnit, type Order, type Shipment, type ShipmentRemoveResult, type Trip } from "@corelogistics/contracts";
 import { api, Empty, Field, fmtTime, Modal, Panel, Pill, Progress, qs, useAction, useApi, type Refs } from "@corelogistics/ui";
 import { useEffect, useState } from "react";
 
@@ -150,6 +150,19 @@ function ShipmentPanel({ shipment, trips, allTrips, refs }: { shipment: Shipment
             >
               Close & release truck
             </button>
+            <button
+              className="btn btn-ghost btn-lg"
+              disabled={busy || mine.length === 0}
+              title="Take these units off the shipment. Anything already on the truck goes back to a staging lane."
+              onClick={() =>
+                run(
+                  () => api.post<ShipmentRemoveResult>(`/outbound/shipments/${shipment.id}/remove`, {}),
+                  (r) => `${r.removed} units removed. Build a new shipment to ship them.`,
+                )
+              }
+            >
+              Remove units
+            </button>
           </div>
         </div>
       </Panel>
@@ -242,7 +255,7 @@ function NewShipment({
   onClose: () => void;
   onCreated: (s: Shipment) => void;
 }) {
-  const orders = useApi<Order[]>(`/outbound/orders${qs({ siteId, status: "picked,staged" })}`, { live: false });
+  const orders = useApi<Order[]>(`/outbound/orders${qs({ siteId, status: "picked,staged" })}`);
   const { busy, run } = useAction();
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [tripId, setTripId] = useState("");

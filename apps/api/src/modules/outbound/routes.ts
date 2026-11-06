@@ -11,6 +11,7 @@ import {
   RequiredSiteQuerySchema,
   ShipmentInputSchema,
   ShipmentPatchSchema,
+  ShipmentRemoveResultSchema,
   ShipmentSchema,
   SiteQuerySchema,
   StageInputSchema,
@@ -33,6 +34,7 @@ import {
   listStagedCrossDock,
   loadShipment,
   releaseOrder,
+  removeShipmentUnits,
   setShipmentTrip,
   stageOrder,
 } from "./service.js";
@@ -134,7 +136,7 @@ export default async function outboundRoutes(app: FastifyInstance) {
   r.patch(
     "/outbound/shipments/:id",
     { schema: { tags, params: IdParamsSchema, body: ShipmentPatchSchema, response: { 200: ShipmentSchema } } },
-    async (req) => setShipmentTrip(req.params.id, req.body.tripId),
+    async (req) => setShipmentTrip(req.params.id, req.body.tripId, ctxOf(req)),
   );
   r.post(
     "/outbound/shipments/:id/load",
@@ -148,6 +150,18 @@ export default async function outboundRoutes(app: FastifyInstance) {
       },
     },
     async (req) => loadShipment(req.params.id, req.body.huIds, ctxOf(req)),
+  );
+  r.post(
+    "/outbound/shipments/:id/remove",
+    {
+      schema: {
+        tags,
+        summary: "Take every unit off the shipment. Loaded units go back to a staging lane",
+        params: IdParamsSchema,
+        response: { 200: ShipmentRemoveResultSchema },
+      },
+    },
+    async (req) => removeShipmentUnits(req.params.id, ctxOf(req)),
   );
   r.post(
     "/outbound/shipments/:id/depart",

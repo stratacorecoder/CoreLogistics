@@ -101,10 +101,90 @@
   gap: 8px;
   padding-top: 10px;
 }
+.designer-split .panel:has(.designer-map-wrap) .panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.designer-map-wrap {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
+}
+.designer-map-wrap > .site-map-frame {
+  flex: none;
+  margin: 0;
+}
+.designer-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.designer-zoom button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--text-heading);
+  cursor: pointer;
+}
+.designer-zoom button svg {
+  width: 16px;
+  height: 16px;
+}
+.designer-zoom button:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+.designer-zoom button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.designer-zoom-value {
+  min-width: 56px;
+  padding: 0 6px;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 36px;
+  color: var(--text-heading);
+}
+.designer-zoom-fit,
+.designer-bottom-actions .designer-pill-btn {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.designer-zoom-fit {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-heading);
+  cursor: pointer;
+}
+.designer-zoom-fit:hover {
+  background: var(--bg-subtle);
+}
 .designer-pill-btn {
-  border-radius: 9999px !important;
-  font-size: 12px;
-  padding: 4px 14px;
+  border-radius: 12px !important;
+  font-size: 13px;
+  padding: 0 14px;
 }
 
 .derived-locations-list {
@@ -251,9 +331,22 @@
 }
 
 .live-board {
-  grid-template-columns: minmax(200px, 232px) minmax(0, 1fr) minmax(268px, 300px);
+  grid-template-columns: minmax(200px, 232px) minmax(0, 1fr) minmax(320px, 380px);
   gap: 12px;
   padding: 4px 2px 2px;
+}
+.live-rail {
+  overflow: auto;
+  min-height: 0;
+}
+.stack.live-rail > .panel.live-trips-panel {
+  flex: 1.2 1 280px;
+  min-height: 240px;
+  max-height: none;
+}
+.stack.live-rail > .panel.grow {
+  flex: 1 1 200px;
+  min-height: 160px;
 }
 @media (max-width: 1100px) {
   .live-board {
@@ -267,22 +360,11 @@
   .live-rail {
     overflow: visible;
   }
-  .stack.live-rail > .panel.live-trips-panel {
+  .stack.live-rail > .panel.live-trips-panel,
+  .stack.live-rail > .panel.grow {
+    min-height: 0;
     max-height: none;
   }
-}
-.live-rail {
-  overflow: hidden;
-  min-height: 0;
-}
-.stack.live-rail > .panel.live-trips-panel {
-  flex: 0 1 auto;
-  max-height: 42%;
-  min-height: 0;
-}
-.stack.live-rail > .panel.grow {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 .live-map-panel {
   height: 100%;
@@ -318,40 +400,40 @@
   background: var(--glass-bg-subtle);
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 10px 12px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
 }
 .live-trip-header {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 8px;
-  flex-wrap: wrap;
 }
 .live-trip-code {
   font-family: var(--font-mono, monospace);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
+  line-height: 1.3;
   color: var(--text-heading);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .live-trip-badges {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
+  justify-content: flex-start;
+  gap: 6px;
   flex-wrap: wrap;
-  min-width: 0;
 }
 .live-badge-delay {
   display: inline-flex;
   align-items: center;
-  padding: 2px 7px;
+  padding: 4px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12.5px;
+  line-height: 1.3;
   font-weight: 600;
   font-family: var(--font-mono);
   background: var(--danger-subtle);
@@ -360,23 +442,26 @@
 .live-badge-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
+  gap: 6px;
+  padding: 4px 10px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12.5px;
+  line-height: 1.3;
   font-weight: 600;
   background: var(--accent-subtle);
   color: var(--accent);
 }
 .live-trip-route {
-  font-size: 12.5px;
+  font-size: 14px;
+  line-height: 1.4;
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 .live-trip-time {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 .activity-timeline-list {

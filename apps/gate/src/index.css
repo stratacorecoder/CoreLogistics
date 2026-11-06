@@ -126,7 +126,7 @@ button.on-site-truck-card.is-selected {
 }
 
 .gate-board {
-  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(248px, 280px);
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr) minmax(248px, 280px);
   gap: 12px;
   padding: 4px 2px 2px;
 }
@@ -177,13 +177,16 @@ button.on-site-truck-card.is-selected {
 }
 
 .gate-side-panel .panel-head {
-  align-items: stretch;
+  align-items: center;
   gap: 8px;
 }
 .gate-side-panel .panel-title {
   white-space: normal;
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: min-content;
+}
+.gate-side-panel .panel-actions {
+  margin-left: auto;
 }
 .gate-side-panel .tabs {
   width: 100%;
@@ -193,11 +196,12 @@ button.on-site-truck-card.is-selected {
   padding: 3px;
 }
 .gate-side-panel .tabs button {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   justify-content: center;
-  padding: 6px 8px;
-  font-size: 12px;
-  min-width: 0;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  min-width: min-content;
+  overflow: hidden;
 }
 
 .on-site-truck-list {
