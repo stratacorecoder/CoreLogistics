@@ -26,5 +26,5 @@
 .zone-chip.is-on { border-color: var(--accent); background: var(--selected); }
 .chart { min-height: 220px; }
 .cap-half { max-height: 55%; flex-shrink: 0; }
-.key-box { padding: 10px; border-radius: var(--radius-sm); background: var(--bg-subtle); border: 1px dashed var(--line-bright); word-break: break-all; color: var(--info); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
-pre.snippet { margin: 0; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-subtle); border: 1px solid var(--line); font-size: 12px; overflow: auto; color: var(--text); font-family: "IBM Plex Mono", monospace; }
+.key-box { padding: 10px; border-radius: var(--radius-sm); background: var(--bg-subtle); border: 1px dashed var(--line-bright); word-break: break-all; color: var(--info); font-family: var(--font-mono); font-size: 12px; }
+pre.snippet { margin: 0; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-subtle); border: 1px solid var(--line); font-size: 12px; overflow: auto; color: var(--text); font-family: var(--font-mono); }

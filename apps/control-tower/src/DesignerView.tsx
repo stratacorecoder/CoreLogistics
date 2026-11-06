@@ -22,6 +22,7 @@ import {
   useApi,
   type MapCell,
 } from "@corelogistics/ui";
+import { Minus, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Tool = CellKind | "select";
@@ -35,19 +36,27 @@ interface DesignerToolDef {
   description?: string;
 }
 
+const ZOOM_STEPS = [20, 24, 28, 32, 40, 48, 56, 64, 80];
+const ZOOM_BASE = 32;
+
+function stepZoom(size: number, direction: 1 | -1) {
+  if (direction > 0) return ZOOM_STEPS.find((step) => step > size + 0.5) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1];
+  return [...ZOOM_STEPS].reverse().find((step) => step < size - 0.5) ?? ZOOM_STEPS[0];
+}
+
 const DESIGNER_TOOLS: DesignerToolDef[] = [
   { id: "select", label: "Select", color: "#94a3b8" },
   { id: "empty", label: "Empty", isOutline: true },
   { id: "road", label: "Road", color: "var(--bg-subtle)" },
-  { id: "gate", label: "Gate", color: "#2563eb" },
-  { id: "dock_door", label: "Dock door", color: "#16a34a" },
+  { id: "gate", label: "Gate", color: "var(--map-gate)" },
+  { id: "dock_door", label: "Dock door", color: "var(--map-dock)" },
   { id: "yard_slot", label: "Yard slot", isOutline: true },
-  { id: "staging", label: "Staging", color: "#b45309" },
-  { id: "sort_lane", label: "Sort lane", color: "#312e81" },
-  { id: "rack", label: "Rack", color: "#7c3aed" },
+  { id: "staging", label: "Staging", color: "var(--map-staging)" },
+  { id: "sort_lane", label: "Sort lane", color: "var(--map-office)" },
+  { id: "rack", label: "Rack", color: "var(--map-rack)" },
   { id: "aisle", label: "Aisle", color: "var(--panel-3)" },
   { id: "wall", label: "Wall", color: "#1e293b" },
-  { id: "office", label: "Office", color: "#312e81" },
+  { id: "office", label: "Office", color: "var(--map-office)" },
 ];
 
 export function DesignerView({ siteId }: { siteId: string }) {
@@ -60,6 +69,7 @@ export function DesignerView({ siteId }: { siteId: string }) {
   const [cellSize, setCellSize] = useState(32);
   const [selected, setSelected] = useState<string | null>(null);
   const painting = useRef(false);
+  const mapWrapRef = useRef<HTMLDivElement>(null);
   const { busy, run } = useAction();
 
   const base = useMemo(() => (remote.data ? freezeLabels(remote.data) : null), [remote.data]);
@@ -72,6 +82,18 @@ export function DesignerView({ siteId }: { siteId: string }) {
     window.addEventListener("pointerup", up);
     return () => window.removeEventListener("pointerup", up);
   }, []);
+
+  useEffect(() => {
+    const el = mapWrapRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setCellSize((size) => stepZoom(size, event.deltaY < 0 ? 1 : -1));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [draft]);
 
   const problem = useMemo(() => (draft ? validateLayout(draft) : null), [draft]);
   const derived = useMemo(() => (draft ? deriveLocations(draft) : []), [draft]);
@@ -154,12 +176,25 @@ export function DesignerView({ siteId }: { siteId: string }) {
     }
   };
 
-  const toggleZoom = () => {
-    setCellSize((size) => (size === 32 ? 38 : size === 38 ? 44 : 32));
+  const zoomPercent = Math.round((cellSize / ZOOM_BASE) * 100);
+  const zoomOut = () => setCellSize((size) => stepZoom(size, -1));
+  const zoomIn = () => setCellSize((size) => stepZoom(size, 1));
+  const fitZoom = () => {
+    const el = mapWrapRef.current;
+    if (!el) return;
+    const styles = getComputedStyle(el);
+    const padX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+    const padY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+    const gap = 2;
+    const availW = el.clientWidth - padX - 26 - 26 - gap * draft.cols;
+    const availH = el.clientHeight - padY - 24 - 44 - gap * (draft.rows + 1);
+    const raw = Math.min(availW / draft.cols, availH / draft.rows);
+    const next = Math.max(ZOOM_STEPS[0], Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], Math.floor(raw)));
+    if (Number.isFinite(next)) setCellSize(next);
   };
 
   return (
-    <div className="split" style={{ gridTemplateColumns: "250px minmax(0, 1fr) 250px" }}>
+    <div className="split designer-split">
       <Panel title="Palette" scroll>
         <div className="designer-sidebar-section">
           <div className="designer-section-title">Brush & Placement Tools</div>
@@ -282,7 +317,7 @@ export function DesignerView({ siteId }: { siteId: string }) {
         }
       >
         <ErrorNote error={problem} />
-        <div className="map-wrap" style={{ maxHeight: "calc(100vh - 175px)" }}>
+        <div className="map-wrap designer-map-wrap" ref={mapWrapRef}>
           <SiteMap
             layout={draft}
             locations={preview}
@@ -298,12 +333,17 @@ export function DesignerView({ siteId }: { siteId: string }) {
         </div>
 
         <div className="designer-bottom-actions">
-          <button
-            type="button"
-            className="btn btn-outline btn-sm designer-pill-btn"
-            onClick={toggleZoom}
-          >
-            Zoom In/Out
+          <div className="designer-zoom" role="group" aria-label="Layout zoom">
+            <button type="button" aria-label="Zoom out" onClick={zoomOut} disabled={cellSize <= ZOOM_STEPS[0]}>
+              <Minus aria-hidden />
+            </button>
+            <span className="designer-zoom-value">{zoomPercent}%</span>
+            <button type="button" aria-label="Zoom in" onClick={zoomIn} disabled={cellSize >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}>
+              <Plus aria-hidden />
+            </button>
+          </div>
+          <button type="button" className="designer-zoom-fit" onClick={fitZoom} title="Fit the grid in the layout panel. Hold Ctrl and scroll to zoom.">
+            Fit
           </button>
           <button
             type="button"

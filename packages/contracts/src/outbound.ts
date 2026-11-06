@@ -140,3 +140,9 @@ export const ShipmentPatchSchema = z.object({ tripId: IdSchema.nullable() });
 export const LoadInputSchema = z.object({
   huIds: z.array(IdSchema).optional().describe("Defaults to every staged HU of the shipment"),
 });
+
+export const ShipmentRemoveResultSchema = z.object({
+  removed: z.number().int(),
+  shipment: ShipmentSchema.nullable(),
+});
+export type ShipmentRemoveResult = z.infer<typeof ShipmentRemoveResultSchema>;

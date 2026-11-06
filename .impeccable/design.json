@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-05T03:10:00.000Z",
+  "title": "Design System: CoreLogistics",
+  "extensions": {
+    "colorMeta": {
+      "apple-blue": { "role": "primary", "displayName": "Apple Blue", "canonical": "#0066cc", "tonalRamp": ["#041a33", "#083366", "#0c4c99", "#0066cc", "#2b86e0", "#5aa6ec", "#8ec4f4", "#d6e9fb"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#0f172a", "tonalRamp": ["#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#f8fafc"] },
+      "mesh-1": { "role": "neutral", "displayName": "Mesh Blue", "canonical": "#e0eafc", "tonalRamp": ["#1a2744", "#2c3e66", "#4d6494", "#7d96c4", "#a9bde0", "#c9d7f0", "#e0eafc", "#f5f8fe"] },
+      "apple-green": { "role": "success", "displayName": "Apple Green", "canonical": "#157a34", "tonalRamp": ["#06210e", "#0c421c", "#11632a", "#157a34", "#34c759", "#6ed98a", "#a8ebbc", "#e5f8eb"] },
+      "apple-orange": { "role": "warning", "displayName": "Apple Orange", "canonical": "#9a4d00", "tonalRamp": ["#2a1500", "#542a00", "#9a4d00", "#c2410c", "#ff9500", "#ffb340", "#ffd199", "#fff1e0"] },
+      "apple-red": { "role": "danger", "displayName": "Apple Red", "canonical": "#d70015", "tonalRamp": ["#3a0006", "#74000c", "#d70015", "#ff3b30", "#ff7b72", "#ffa8a2", "#ffd0cd", "#fff1f0"] }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "UI", "purpose": "Labels, navigation, and form copy." },
+      "title": { "displayName": "View title", "purpose": "The name of the current screen in the header." },
+      "data": { "displayName": "Data", "purpose": "Plates, trip ids, counts, and the clock." }
+    },
+    "shadows": [
+      { "name": "glass", "value": "0 12px 32px -8px rgba(15, 23, 42, 0.1), 0 2px 6px -1px rgba(15, 23, 42, 0.05), inset 0 1px 0 0 rgba(255, 255, 255, 0.85)", "purpose": "Default glass pane." },
+      { "name": "obsidian", "value": "0 35px 80px -15px rgba(0, 0, 0, 0.85), inset 0 1px 0 0 rgba(255, 255, 255, 0.22)", "purpose": "Sign-in card." }
+    ],
+    "motion": [
+      { "name": "lift", "value": "transform 0.14s cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Map cell and card hover." }
+    ],
+    "breakpoints": [
+      { "name": "desk", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled action on a pane, such as New trip.",
+      "html": "<button class=\"ds-btn-primary\">New trip</button>",
+      "css": ".ds-btn-primary { background: linear-gradient(180deg, #1a8cff 0%, #0066cc 100%); color: #fff; border: 0; border-radius: 12px; padding: 8px 14px; font-weight: 600; font-size: 12.5px; box-shadow: 0 8px 16px -8px rgba(0, 102, 204, 0.7), inset 0 1px 0 rgba(255,255,255,0.35); } .ds-btn-primary:hover { background: linear-gradient(180deg, #3d9bff 0%, #0057b0 100%); } .ds-btn-primary:focus-visible { outline: 2px solid #0066cc; outline-offset: 2px; } .ds-btn-primary:active { transform: scale(0.98); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action on glass.",
+      "html": "<button class=\"ds-btn-ghost\">Discard</button>",
+      "css": ".ds-btn-ghost { background: rgba(255,255,255,0.45); color: #1e293b; border: 1px solid rgba(15,23,42,0.1); border-radius: 12px; padding: 8px 14px; font-weight: 600; font-size: 12.5px; } .ds-btn-ghost:hover { background: rgba(255,255,255,0.72); } .ds-btn-ghost:focus-visible { outline: 2px solid #0066cc; outline-offset: 2px; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Search and form fields.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search trip, route, plate, driver\" />",
+      "css": ".ds-input { background: rgba(255,255,255,0.72); color: #0f172a; border: 1px solid rgba(15,23,42,0.14); border-radius: 12px; padding: 8px 12px; font-size: 13px; width: 240px; } .ds-input:focus-visible { outline: 2px solid #0066cc; outline-offset: 2px; }"
+    },
+    {
+      "name": "Nav item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Active item in the floating sidebar.",
+      "html": "<button class=\"ds-nav\">Live site</button>",
+      "css": ".ds-nav { background: rgba(0,102,204,0.14); color: #0066cc; border: 0; border-radius: 12px; padding: 8px 11px; font-weight: 600; font-size: 13px; } .ds-nav:hover { background: rgba(0,102,204,0.18); } .ds-nav:focus-visible { outline: 2px solid #0066cc; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status pill",
+      "kind": "chip",
+      "refersTo": "panel",
+      "description": "A status word with a dot.",
+      "html": "<span class=\"ds-pill\">In yard</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 5px; background: rgba(255,149,0,0.16); color: #9a4d00; border: 1px solid rgba(154,77,0,0.25); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; } .ds-pill::before { content: \"\"; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }"
+    },
+    {
+      "name": "Glass panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The default content pane.",
+      "html": "<section class=\"ds-panel\"><h2>On site now</h2><p>Seven trucks are in the yard.</p></section>",
+      "css": ".ds-panel { background: rgba(255,255,255,0.66); color: #0f172a; border: 1px solid rgba(255,255,255,0.78); border-radius: 20px; padding: 14px 16px; box-shadow: 0 12px 32px -8px rgba(15,23,42,0.1), inset 0 1px 0 rgba(255,255,255,0.85); backdrop-filter: blur(22px) saturate(180%); max-width: 280px; } .ds-panel h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; } .ds-panel p { margin: 0; color: #475569; font-size: 13px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Frosted operations desk",
+    "overview": "CoreLogistics is a desk you can see the yard through. Panels are glass over an ambient mesh, not solid cards on a flat page. The same material wraps the control tower, the gate, the warehouse floor, and the driver cab. Tower screens keep the mock's jobs: live site, dispatch, fleet, designer, analytics. The other apps keep their own tasks inside that chrome.",
+    "keyCharacteristics": [
+      "Three glass levels: default, strong, and subtle, each with blur, a hairline, and an inset highlight.",
+      "An ambient mesh of blue, purple, teal, and green, light by default and dark when the operator switches.",
+      "Apple hues for status, darkened where white or light text would fail contrast.",
+      "JetBrains Mono only for plates, trip ids, counts, and the clock."
+    ],
+    "rules": [
+      { "name": "The Ink Rule", "body": "Body text is ink or ink-soft on light glass, and near-white on dark glass. Gray on a tinted surface is not a secondary color.", "section": "colors" },
+      { "name": "The Data Face Rule", "body": "Mono is for identifiers, durations, and counts. Labels stay in the UI face.", "section": "typography" }
+    ],
+    "dos": [
+      "Do keep real trip, plate, and site data in the glass. Do not paste sample counts from the mock.",
+      "Do use the shared shell for every app. Do not rebuild warehouse, gate, or driver into the tower's five-column layouts.",
+      "Do pair a status color with a word."
+    ],
+    "donts": [
+      "Don't put a left stripe on cards or nav items.",
+      "Don't use IBM Plex, gradient text, or a flat white page behind the panels.",
+      "Don't put small white type on Apple green or Apple orange."
+    ]
+  }
+}

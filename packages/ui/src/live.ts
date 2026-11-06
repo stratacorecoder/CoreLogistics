@@ -57,9 +57,16 @@ export interface ApiState<T> {
   reload: () => void;
 }
 
+const reloaders = new Set<() => void>();
+
+/** Refetch every mounted query. Used after the operator's own action. */
+export function refreshLiveQueries() {
+  for (const load of reloaders) load();
+}
+
 /**
- * Fetches `path` and refetches whenever a live event arrives (debounced), so
- * every screen stays current without manual refresh. Pass `null` to skip.
+ * Fetches `path` and refetches as soon as a live event arrives, so every open
+ * desk stays current without a manual refresh. Pass `null` to skip.
  */
 export function useApi<T>(
   path: string | null,
@@ -69,16 +76,18 @@ export function useApi<T>(
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(path));
   const seq = useRef(0);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const hasData = useRef(false);
+  const queued = useRef(false);
 
   const load = useCallback(() => {
     if (!path) return;
     const mine = ++seq.current;
-    setLoading(true);
+    if (!hasData.current) setLoading(true);
     api
       .get<T>(path)
       .then((d) => {
         if (mine !== seq.current) return;
+        hasData.current = true;
         setData(d);
         setError(null);
       })
@@ -91,8 +100,16 @@ export function useApi<T>(
   }, [path]);
 
   useEffect(() => {
+    hasData.current = false;
     setData(undefined);
     load();
+  }, [load]);
+
+  useEffect(() => {
+    reloaders.add(load);
+    return () => {
+      reloaders.delete(load);
+    };
   }, [load]);
 
   useEffect(() => {
@@ -102,11 +119,33 @@ export function useApi<T>(
   }, [load, opts.intervalMs]);
 
   const live = opts.live ?? true;
+  const liveRef = useRef(live);
+  liveRef.current = live;
+
+  const schedule = useCallback(() => {
+    if (queued.current) return;
+    queued.current = true;
+    queueMicrotask(() => {
+      queued.current = false;
+      load();
+    });
+  }, [load]);
+
   useLiveEvents((e) => {
-    if (!live || (typeof live === "function" && !live(e))) return;
-    clearTimeout(timer.current);
-    timer.current = setTimeout(load, 250);
+    const current = liveRef.current;
+    if (!current || (typeof current === "function" && !current(e))) return;
+    schedule();
   });
+
+  const followLive = live !== false;
+  useEffect(() => {
+    if (!followLive) return;
+    const onShow = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, [load, followLive]);
 
   return { data, error, loading, reload: load };
 }
@@ -147,6 +186,7 @@ export function useAction() {
     setBusy(true);
     try {
       const result = await fn();
+      refreshLiveQueries();
       if (success) toast(typeof success === "function" ? success(result) : success, "ok");
       return result;
     } catch (err) {

@@ -37,6 +37,7 @@ export const EVENT_TYPES = [
   "pick.done",
   "order.staged",
   "shipment.created",
+  "shipment.updated",
   "hu.loaded",
   "shipment.departed",
   "device.created",

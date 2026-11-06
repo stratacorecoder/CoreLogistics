@@ -104,7 +104,7 @@ export function SortView({ siteId, refs, onPutaway }: { siteId: string; refs: Re
 }
 
 function SortRules({ siteId, refs }: { siteId: string; refs: Refs }) {
-  const rules = useApi<SortRule[]>(`/warehouse/sort-rules${qs({ siteId })}`, { live: false });
+  const rules = useApi<SortRule[]>(`/warehouse/sort-rules${qs({ siteId })}`);
   const lanes = useApi<Location[]>(`/sites/${siteId}/locations${qs({ kind: "sort_lane" })}`, { live: false });
   const { busy, run } = useAction();
   const [matchKind, setMatchKind] = useState<SortMatchKind>("destination");

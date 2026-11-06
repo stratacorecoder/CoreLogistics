@@ -108,6 +108,7 @@ function ReceiptPanel({ receipt, refs, onSort }: { receipt: Receipt; refs: Refs;
   return (
     <div className="wh-receive-scroll stack">
       <Panel
+        className="wh-receipt-panel"
         title={`${receipt.code} · ${receipt.supplier || "Walk-in receipt"}`}
         actions={
           <div className="row" style={{ gap: 8 }}>
@@ -130,84 +131,85 @@ function ReceiptPanel({ receipt, refs, onSort }: { receipt: Receipt; refs: Refs;
         <div className="wh-kpi-strip">
           <div className="wh-kpi-item">
             <span className="wh-kpi-label">Expected</span>
-            <span className="wh-kpi-val">{totalExpected} <small style={{ fontSize: 11, fontWeight: 500, color: "var(--muted)" }}>units</small></span>
+            <span className="wh-kpi-val">{totalExpected}</span>
+            <span className="wh-kpi-unit">units</span>
           </div>
           <div className="wh-kpi-item">
             <span className="wh-kpi-label">Received</span>
-            <span className="wh-kpi-val" style={{ color: totalReceived >= totalExpected && totalExpected > 0 ? "var(--ok)" : "var(--text-heading)" }}>
-              {totalReceived} <small style={{ fontSize: 11, fontWeight: 500, color: "var(--muted)" }}>units</small>
+            <span className="wh-kpi-val" style={{ color: totalReceived >= totalExpected && totalExpected > 0 ? "var(--ok)" : undefined }}>
+              {totalReceived}
             </span>
+            <span className="wh-kpi-unit">units</span>
           </div>
           <div className="wh-kpi-item">
             <span className="wh-kpi-label">Handled</span>
-            <span className="wh-kpi-val">{hus.data?.length ?? 0} <small style={{ fontSize: 11, fontWeight: 500, color: "var(--muted)" }}>HUs</small></span>
+            <span className="wh-kpi-val">{hus.data?.length ?? 0}</span>
+            <span className="wh-kpi-unit">HUs</span>
           </div>
           <div className="wh-kpi-item">
             <span className="wh-kpi-label">Progress</span>
             <span className="wh-kpi-val">{overallPct}%</span>
+            <span className="wh-kpi-unit">of expected</span>
           </div>
         </div>
 
-        <table className="table wh-sku-table">
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th className="right">Expected</th>
-              <th className="right">Received</th>
-              <th style={{ width: "35%" }}>Progress</th>
-            </tr>
-          </thead>
-          <tbody>
-            {receipt.lines.map((l) => {
-              const linePct = l.expectedQty ? Math.min(100, Math.round((l.receivedQty / l.expectedQty) * 100)) : 0;
-              const isSelected = l.skuId === skuId;
-              const isDone = l.expectedQty > 0 && l.receivedQty >= l.expectedQty;
-              return (
-                <tr
-                  key={l.id}
-                  className={`is-clickable${isSelected ? " is-selected" : ""}`}
-                  onClick={() => setSkuId(l.skuId)}
-                >
-                  <td>
-                    <div className="row" style={{ gap: 6 }}>
-                      <span className="mono strong">{l.skuCode}</span>
-                      {isSelected ? <span className="pill tone-accent small">Selected</span> : null}
-                    </div>
-                    <div className="muted small">{l.skuName}</div>
-                  </td>
-                  <td className="right mono">{l.expectedQty}</td>
-                  <td className={`right mono ${l.receivedQty > l.expectedQty && l.expectedQty ? "warn-text" : isDone ? "ok-text" : ""}`}>
-                    {l.receivedQty}
-                  </td>
-                  <td>
-                    <div className="wh-table-progress-cell">
-                      <div className="wh-mini-bar">
-                        <div
-                          className={`wh-mini-bar-fill ${isDone ? "is-ok" : l.receivedQty > 0 ? "is-accent" : ""}`}
-                          style={{ width: `${linePct}%` }}
-                        />
+        {receipt.lines.length ? (
+          <table className="table wh-sku-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th className="right">Expected</th>
+                <th className="right">Received</th>
+                <th style={{ width: "35%" }}>Progress</th>
+              </tr>
+            </thead>
+            <tbody>
+              {receipt.lines.map((l) => {
+                const linePct = l.expectedQty ? Math.min(100, Math.round((l.receivedQty / l.expectedQty) * 100)) : 0;
+                const isSelected = l.skuId === skuId;
+                const isDone = l.expectedQty > 0 && l.receivedQty >= l.expectedQty;
+                return (
+                  <tr
+                    key={l.id}
+                    className={`is-clickable${isSelected ? " is-selected" : ""}`}
+                    onClick={() => setSkuId(l.skuId)}
+                  >
+                    <td>
+                      <div className="row" style={{ gap: 6 }}>
+                        <span className="mono strong">{l.skuCode}</span>
+                        {isSelected ? <span className="pill tone-accent small">Selected</span> : null}
                       </div>
-                      <span className="wh-mini-bar-label mono">
-                        {linePct}%
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      <div className="muted small">{l.skuName}</div>
+                    </td>
+                    <td className="right mono">{l.expectedQty}</td>
+                    <td className={`right mono ${l.receivedQty > l.expectedQty && l.expectedQty ? "warn-text" : isDone ? "ok-text" : ""}`}>
+                      {l.receivedQty}
+                    </td>
+                    <td>
+                      <div className="wh-table-progress-cell">
+                        <div className="wh-mini-bar">
+                          <div
+                            className={`wh-mini-bar-fill ${isDone ? "is-ok" : l.receivedQty > 0 ? "is-accent" : ""}`}
+                            style={{ width: `${linePct}%` }}
+                          />
+                        </div>
+                        <span className="wh-mini-bar-label mono">{linePct}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <p className="wh-lines-empty">No expected lines on this receipt. Receive any SKU below.</p>
+        )}
       </Panel>
 
       <Panel
+        className="wh-receive-panel"
         title="Receive a unit"
-        actions={
-          activeLine ? (
-            <span className="muted small mono">
-              Target: <strong style={{ color: "var(--text-heading)" }}>{activeLine.skuCode}</strong>
-            </span>
-          ) : null
-        }
+        actions={activeLine ? <span className="muted small mono">Target {activeLine.skuCode}</span> : null}
       >
         <div className="form">
           <div className="wh-form-grid-3">
@@ -313,6 +315,7 @@ function ReceiptPanel({ receipt, refs, onSort }: { receipt: Receipt; refs: Refs;
       </Panel>
 
       <Panel
+        className="wh-units-panel"
         title={`Units on this receipt (${hus.data?.length ?? 0})`}
         actions={
           pending.length ? (

@@ -23,6 +23,34 @@ import { checkOut, openVisitForVehicle } from "../gate/service.js";
 import { getSite, siteDistanceKm } from "../sites/service.js";
 
 const MIN = 60_000;
+/** A plan older than this was left over from an earlier day, not a promise for the job being started now. */
+const STALE_MS = 12 * 60 * MIN;
+
+function refreshedPlan(plannedDeparture: string, plannedArrival: string, startMs: number, nowMs: number) {
+  const duration = Math.max(30 * MIN, Date.parse(plannedArrival) - Date.parse(plannedDeparture));
+  const arrivalMs = Math.max(startMs + duration, nowMs + ON_TIME_TOLERANCE_MINUTES * MIN);
+  return { departure: new Date(startMs).toISOString(), arrival: new Date(arrivalMs).toISOString() };
+}
+
+/** Moves open trips whose plan is from a previous day onto a window that starts when the work actually starts. */
+export function rebaseStaleOpenTrips(now = Date.now()): number {
+  const rows = many(
+    `SELECT id, planned_departure, planned_arrival, actual_departure FROM trips
+     WHERE status IN ('planned','dispatched','in_transit','arrived')`,
+  );
+  let moved = 0;
+  for (const r of rows) {
+    const pd = Date.parse(r.planned_departure);
+    const left = r.actual_departure ? Date.parse(r.actual_departure) : null;
+    const stale = now - pd > STALE_MS && (left === null || pd + ON_TIME_TOLERANCE_MINUTES * MIN < left);
+    if (!stale) continue;
+    const start = left ?? now + 45 * MIN;
+    const next = refreshedPlan(r.planned_departure, r.planned_arrival, start, now);
+    run("UPDATE trips SET planned_departure = ?, planned_arrival = ? WHERE id = ?", [next.departure, next.arrival, r.id]);
+    moved += 1;
+  }
+  return moved;
+}
 
 function toStop(r: Row): TripStop {
   return {
@@ -312,7 +340,20 @@ export function departTrip(id: string, ctx: Ctx): Trip {
     if (t.status === "cancelled") throw badRequest("Trip is cancelled");
     if (t.status === "planned") t = dispatchTrip(t.id, ctx);
     const when = at(ctx);
-    run("UPDATE trips SET status = 'in_transit', actual_departure = ? WHERE id = ?", [when, t.id]);
+    const whenMs = Date.parse(when);
+    let plannedDeparture = t.plannedDeparture;
+    let plannedArrival = t.plannedArrival;
+    if (whenMs - Date.parse(plannedDeparture) > STALE_MS) {
+      const next = refreshedPlan(plannedDeparture, plannedArrival, whenMs, whenMs);
+      plannedDeparture = next.departure;
+      plannedArrival = next.arrival;
+    }
+    run("UPDATE trips SET status = 'in_transit', actual_departure = ?, planned_departure = ?, planned_arrival = ? WHERE id = ?", [
+      when,
+      plannedDeparture,
+      plannedArrival,
+      t.id,
+    ]);
     // A truck still checked in at the origin leaves through the gate with its trailer.
     for (const vid of [t.vehicleId, t.trailerId]) {
       if (!vid) continue;
@@ -323,7 +364,7 @@ export function departTrip(id: string, ctx: Ctx): Trip {
     }
     const trip = getTrip(t.id);
     refreshAssets(trip);
-    const late = Math.round((Date.parse(when) - Date.parse(t.plannedDeparture)) / MIN);
+    const late = Math.round((Date.parse(when) - Date.parse(plannedDeparture)) / MIN);
     emit(ctx, {
       type: "trip.departed",
       tripId: t.id,

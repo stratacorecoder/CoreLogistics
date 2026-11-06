@@ -1,10 +1,11 @@
 import { humanize, type EventRecord, type Site } from "@corelogistics/contracts";
 import { LogOut, Moon, PanelLeft, PanelLeftClose, Sun } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getActor } from "./api.js";
 import { SignIn2 } from "./components/ui/clean-minimal-sign-in.js";
 import { fmtDateTime } from "./format.js";
 import { useStreamStatus, useToasts } from "./live.js";
+import { useDeskMotion, useThemeWipe } from "./motion.js";
 
 const TONE: Record<string, string> = {
   available: "ok",
@@ -179,6 +180,8 @@ export function Clock() {
 }
 
 export function ThemeToggle() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wipe = useThemeWipe(buttonRef);
   const [theme, setTheme] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("corelogistics:theme") || "light";
@@ -192,11 +195,17 @@ export function ThemeToggle() {
   }, [theme]);
 
   const toggle = () => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    const next = theme === "dark" ? "light" : "dark";
+    wipe(next, () => {
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("corelogistics:theme", next);
+      setTheme(next);
+    });
   };
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       className="theme-toggle-btn"
       onClick={toggle}
@@ -255,6 +264,9 @@ export function Shell({
     return () => window.removeEventListener("corelogistics:actor", sync);
   }, []);
 
+  const shellRef = useRef<HTMLDivElement>(null);
+  useDeskMotion(shellRef);
+
   const initials = (actorName || "OP")
     .split(" ")
     .map((p) => p[0])
@@ -274,7 +286,10 @@ export function Shell({
     </div>
   );
   return (
-    <div className={`${tone === "floor" ? "shell theme-floor" : "shell"}${nav ? " has-nav" : ""}${nav && navCollapsed ? " is-nav-collapsed" : ""}`}>
+    <div
+      ref={shellRef}
+      className={`${tone === "floor" ? "shell theme-floor" : "shell"}${nav ? " has-nav" : ""}${nav && navCollapsed ? " is-nav-collapsed" : ""}`}
+    >
       {nav ? (
         <aside className={`side-nav${navCollapsed ? " is-collapsed" : ""}`}>
           <div className="side-brand-row">
@@ -332,7 +347,11 @@ export function Shell({
         </aside>
       ) : null}
       <header className="topbar">
-        {nav ? null : brand}
+        {nav ? (
+          <div className="topbar-view">{nav.find((item) => item.id === navValue)?.label}</div>
+        ) : (
+          brand
+        )}
         <div className="topbar-center">{nav ? null : center}</div>
         <div className="topbar-right">
           {right}

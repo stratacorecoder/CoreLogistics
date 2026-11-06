@@ -404,13 +404,21 @@ export function createShipment(input: z.output<typeof ShipmentInputSchema>, ctx:
   });
 }
 
-export function setShipmentTrip(id: string, tripId: string | null): Shipment {
+export function setShipmentTrip(id: string, tripId: string | null, ctx: Ctx): Shipment {
   return tx(() => {
     const s = getShipment(id);
     if (s.status !== "planning") throw badRequest("Trip can only change before loading starts");
     if (tripId) checkTripForShipment(s.siteId, tripId, s.orderIds.map((o) => getOrder(o).customerSiteId));
     run("UPDATE shipments SET trip_id = ? WHERE id = ?", [tripId, s.id]);
-    return getShipment(s.id);
+    const shipment = getShipment(s.id);
+    emit(ctx, {
+      type: "shipment.updated",
+      siteId: shipment.siteId,
+      tripId: shipment.tripId,
+      entityId: shipment.id,
+      message: tripId ? `Shipment ${shipment.code} attached to ${shipment.tripCode}` : `Shipment ${shipment.code} detached from its trip`,
+    });
+    return shipment;
   });
 }
 
@@ -530,6 +538,63 @@ export function departShipment(id: string, ctx: Ctx): Shipment {
     });
     return getShipment(s.id);
   });
+}
+
+/** Takes every unit off a shipment. Loaded units return to a staging lane, and an empty shipment is deleted. */
+export function removeShipmentUnits(id: string, ctx: Ctx): { removed: number; shipment: Shipment | null } {
+  return tx(() => {
+    const s = getShipment(id);
+    if (s.status === "departed") throw badRequest("Shipment already left");
+    const row = one("SELECT * FROM shipments WHERE id = ?", [s.id])!;
+    const hus = shipmentHus(row);
+    if (!hus.length) throw badRequest("Nothing on this shipment");
+    if (hus.some((h) => h.status === "shipped")) throw badRequest("Units already shipped");
+
+    const when = at(ctx);
+    const lane = hus.some((h) => h.status === "loaded") ? freeStaging(s.siteId) : undefined;
+    if (hus.some((h) => h.status === "loaded") && !lane) throw badRequest("This site has no staging area");
+
+    for (const hu of hus) {
+      if (hu.status === "loaded") {
+        const loc = !hu.orderId && hu.sortLaneId ? hu.sortLaneId : lane!.id;
+        run(
+          "UPDATE handling_units SET status = 'staged', shipment_id = NULL, location_id = ?, updated_at = ? WHERE id = ?",
+          [loc, when, hu.id],
+        );
+      } else if (hu.shipmentId) {
+        run("UPDATE handling_units SET shipment_id = NULL, updated_at = ? WHERE id = ?", [when, hu.id]);
+      }
+    }
+    run("DELETE FROM load_records WHERE shipment_id = ?", [s.id]);
+    for (const orderId of s.orderIds) {
+      const statuses = many<{ status: string }>("SELECT status FROM handling_units WHERE order_id = ?", [orderId]).map((r) => r.status);
+      const next = statuses.includes("staged") ? "staged" : statuses.includes("picked") ? "picked" : "staged";
+      run("UPDATE orders SET shipment_id = NULL, status = ? WHERE id = ?", [next, orderId]);
+    }
+    run("DELETE FROM shipments WHERE id = ?", [s.id]);
+    emit(ctx, {
+      type: "shipment.updated",
+      siteId: s.siteId,
+      tripId: s.tripId,
+      entityId: s.id,
+      message: `Removed ${hus.length} units from ${s.code}. They are back on the floor`,
+    });
+    return { removed: hus.length, shipment: null };
+  });
+}
+
+const ORDER_STALE_MS = 12 * 60 * 60 * 1000;
+
+/** Gives still-open orders a due time from now when the old due date is from a previous day. */
+export function rebaseStaleOpenOrders(now = Date.now()): number {
+  const due = new Date(now + 6 * 60 * 60 * 1000).toISOString();
+  const cutoff = new Date(now - ORDER_STALE_MS).toISOString();
+  return Number(
+    run(
+      `UPDATE orders SET due_at = ? WHERE status IN ('open','picking','picked','staged') AND due_at < ?`,
+      [due, cutoff],
+    ).changes,
+  );
 }
 
 export function listStagedCrossDock(siteId: string): HandlingUnit[] {

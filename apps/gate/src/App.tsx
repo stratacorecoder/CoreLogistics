@@ -33,6 +33,7 @@ import {
   toLocalInput,
   useAction,
   useApi,
+  useFitMapCells,
   useLocalState,
   useNow,
   useRefs,
@@ -93,21 +94,16 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
     if (v) setSelectedId(v.id);
   };
 
-  const cellSize = useMemo(() => {
-    if (!board.data?.layout) return 32;
-    const cols = board.data.layout.cols;
-    if (cols > 20) return 24;
-    if (cols > 16) return 28;
-    return 32;
-  }, [board.data?.layout]);
+  const layout = board.data?.layout;
+  const { ref: mapRef, cell } = useFitMapCells(layout?.cols ?? 0, layout?.rows ?? 0);
 
   return (
-    <div className="three" style={{ gridTemplateColumns: "300px minmax(0, 1fr) 280px" }}>
+    <div className="three gate-board">
       <div className="stack" style={{ overflow: "hidden" }}>
         <QuickGate siteId={siteId} onCheckIn={(plate) => setCheckInFor({ plate })} onCheckedOut={() => setSelectedId(null)} />
         <Panel
           scroll
-          className="grow"
+          className="grow gate-side-panel"
           actions={
             side === "appointments" ? (
               <button className="btn btn-ghost btn-sm" onClick={() => setBooking(true)}>
@@ -243,15 +239,20 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
         </Panel>
       </div>
 
-      <Panel title={board.data ? `${board.data.site.code} yard & docks` : "Yard"} actions={<MapLegend kinds={["gate", "dock_door", "yard_slot", "staging"]} />}>
+      <Panel
+        title={board.data ? `${board.data.site.code} yard & docks` : "Yard"}
+        actions={<MapLegend kinds={["gate", "dock_door", "yard_slot", "staging"]} />}
+        className="gate-map-panel"
+      >
         <ErrorNote error={board.error} />
         {board.data && board.data.layout.cells.length ? (
-          <div className="map-wrap" style={{ maxHeight: "calc(100vh - 150px)" }}>
+          <div className="map-wrap gate-map-wrap" ref={mapRef}>
             <SiteMap
               layout={board.data.layout}
               locations={board.data.locations}
               now={now}
-              cellSize={cellSize}
+              cellWidth={cell.w}
+              cellHeight={cell.h}
               highlight={highlight}
               onCellClick={(_, locs) => onCell(locs)}
             />
@@ -261,7 +262,7 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
         ) : null}
       </Panel>
 
-      <div className="stack" style={{ overflow: "hidden" }}>
+      <div className="stack gate-rail">
         {selected && board.data ? (
           <VisitPanel visit={selected} board={board.data} onClose={() => setSelectedId(null)} />
         ) : null}
@@ -285,11 +286,10 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
                       </span>
                     </div>
                     <div className="on-site-truck-meta">
-                      {v.dock ? `Dock ${v.dock.code} · ${v.dock.purpose || "Active"}` : v.yardCode ? `Yard ${v.yardCode}` : "No slot"}
+                      {v.dock ? `Dock ${v.dock.code}` : v.yardCode ? `Yard ${v.yardCode}` : "No slot"}
                       {v.tripCode ? ` · ${v.tripCode}` : ""}
-                      {" · "}
-                      {formatDuration(v.dwellMinutes)} on site
                     </div>
+                    <div className="on-site-truck-dwell">{formatDuration(v.dwellMinutes)} on site</div>
                   </button>
                 );
               })}

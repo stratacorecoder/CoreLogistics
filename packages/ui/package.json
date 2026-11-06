@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@corelogistics/contracts": "*",
+    "@gsap/react": "^2.1.2",
+    "gsap": "^3.15.1",
     "lucide-react": "^1.64.0"
   },
   "devDependencies": {

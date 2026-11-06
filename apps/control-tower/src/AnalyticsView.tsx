@@ -1,10 +1,46 @@
 import { formatDuration, humanize, ZONE_META, type AnalyticsSummary } from "@corelogistics/contracts";
 import { ErrorNote, Kpi, Panel, Progress, useApi, type Refs } from "@corelogistics/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-const AXIS = { stroke: "#5c6570", fontSize: 12 };
-const TOOLTIP = { contentStyle: { background: "#ffffff", border: "1px solid #d0d5dd", borderRadius: 2, color: "#1c2128" }, labelStyle: { color: "#1c2128" } };
+function useChartTheme() {
+  const [dark, setDark] = useState(() => document.documentElement.getAttribute("data-theme") === "dark");
+  useEffect(() => {
+    const node = document.documentElement;
+    const sync = () => setDark(node.getAttribute("data-theme") === "dark");
+    const obs = new MutationObserver(sync);
+    obs.observe(node, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
+  if (dark) {
+    return {
+      axis: { stroke: "#cbd5e1", fontSize: 12 },
+      grid: "rgba(255,255,255,0.08)",
+      tooltip: {
+        contentStyle: {
+          background: "rgba(22, 29, 45, 0.94)",
+          border: "1px solid rgba(255,255,255,0.14)",
+          borderRadius: 14,
+          color: "#f8fafc",
+        },
+        labelStyle: { color: "#f8fafc" },
+      },
+    };
+  }
+  return {
+    axis: { stroke: "#475569", fontSize: 12 },
+    grid: "rgba(15,23,42,0.08)",
+    tooltip: {
+      contentStyle: {
+        background: "rgba(255,255,255,0.94)",
+        border: "1px solid rgba(15,23,42,0.08)",
+        borderRadius: 14,
+        color: "#0f172a",
+      },
+      labelStyle: { color: "#0f172a" },
+    },
+  };
+}
 
 const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v)}%`);
 const toneFor = (v: number | null, good = 90, ok = 75) => (v == null ? undefined : v >= good ? "ok" : v >= ok ? "warn" : "danger");
@@ -13,7 +49,8 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
   const [days, setDays] = useState(7);
   const [scope, setScope] = useState<"site" | "network">("site");
   const q = scope === "site" ? `siteId=${siteId}&days=${days}` : `days=${days}`;
-  const { data, error } = useApi<AnalyticsSummary>(`/analytics/summary?${q}`, { intervalMs: 60_000, live: false });
+  const { data, error } = useApi<AnalyticsSummary>(`/analytics/summary?${q}`, { intervalMs: 60_000 });
+  const chart = useChartTheme();
 
   return (
     <div className="page stack">
@@ -50,13 +87,13 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
               <div className="chart">
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={data.throughput}>
-                    <CartesianGrid stroke="#e6e9ee" vertical={false} />
-                    <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} {...AXIS} />
-                    <YAxis allowDecimals={false} {...AXIS} />
-                    <Tooltip {...TOOLTIP} cursor={{ fill: "rgba(28,33,40,0.06)" }} />
+                    <CartesianGrid stroke={chart.grid} vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} {...chart.axis} />
+                    <YAxis allowDecimals={false} {...chart.axis} />
+                    <Tooltip {...chart.tooltip} cursor={{ fill: "rgba(0,122,255,0.08)" }} />
                     <Legend />
-                    <Bar dataKey="received" name="Received" fill="#1d4f91" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="shipped" name="Shipped" fill="#0f6b45" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="received" name="Received" fill="var(--map-gate)" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="shipped" name="Shipped" fill="var(--map-dock)" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -65,13 +102,13 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
               <div className="chart">
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={data.throughput}>
-                    <CartesianGrid stroke="#e6e9ee" vertical={false} />
-                    <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} {...AXIS} />
-                    <YAxis allowDecimals={false} {...AXIS} />
-                    <Tooltip {...TOOLTIP} />
+                    <CartesianGrid stroke={chart.grid} vertical={false} />
+                    <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} {...chart.axis} />
+                    <YAxis allowDecimals={false} {...chart.axis} />
+                    <Tooltip {...chart.tooltip} />
                     <Legend />
-                    <Line type="monotone" dataKey="gateIn" name="In" stroke="#1d4f91" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="gateOut" name="Out" stroke="#8a5a00" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="gateIn" name="In" stroke="var(--map-gate)" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="gateOut" name="Out" stroke="var(--map-staging)" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
