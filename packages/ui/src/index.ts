@@ -5,3 +5,5 @@ export * from "./format.js";
 export * from "./SiteMap.js";
 export * from "./components.js";
 export * from "./refs.js";
+export * from "./CameraScanner.js";
+export * from "./CopilotTray.js";

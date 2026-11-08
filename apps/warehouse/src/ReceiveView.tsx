@@ -1,5 +1,5 @@
 import { HU_KINDS, humanize, type HandlingUnit, type HuKind, type Receipt } from "@corelogistics/contracts";
-import { api, Empty, Field, fmtDateTime, Modal, Panel, Pill, qs, useAction, useApi, type Refs } from "@corelogistics/ui";
+import { api, Empty, Field, fmtDateTime, Modal, Panel, Pill, qs, ScanButton, useAction, useApi, type Refs } from "@corelogistics/ui";
 import { useEffect, useState } from "react";
 
 export function ReceiveView({ siteId, refs, onSort }: { siteId: string; refs: Refs; onSort: () => void }) {
@@ -247,12 +247,16 @@ function ReceiptPanel({ receipt, refs, onSort }: { receipt: Receipt; refs: Refs;
 
           <div className="wh-form-grid-3">
             <Field label="Barcode" hint="Scan existing label, or leave blank to auto-generate">
-              <input
-                className="input scan-input"
-                placeholder="AUTO PRINT"
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="input scan-input"
+                  style={{ flex: 1 }}
+                  placeholder="AUTO PRINT"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                />
+                <ScanButton onScan={(scanned) => setCode(scanned.toUpperCase())} />
+              </div>
             </Field>
             <Field label="Lot / Batch #" hint="Optional manufacturer lot">
               <input

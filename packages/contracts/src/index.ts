@@ -8,4 +8,5 @@ export * from "./warehouse.js";
 export * from "./outbound.js";
 export * from "./events.js";
 export * from "./analytics.js";
+export * from "./copilot.js";
 export * from "./format.js";

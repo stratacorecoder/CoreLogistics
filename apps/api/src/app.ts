@@ -11,6 +11,8 @@ import { forbidden, HttpError, unauthorized } from "./errors.js";
 import { sessionUser, tokenOf } from "./modules/auth/service.js";
 import analyticsRoutes from "./modules/analytics/routes.js";
 import authRoutes from "./modules/auth/routes.js";
+import { copilotRoutes } from "./modules/copilot/routes.js";
+import { initCopilot } from "./modules/copilot/service.js";
 import fleetRoutes from "./modules/fleet/routes.js";
 import gateRoutes from "./modules/gate/routes.js";
 import ingestRoutes from "./modules/ingest/routes.js";
@@ -130,7 +132,11 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
     // Administrative access control
     if (
       (path.startsWith("/sites/") && path.endsWith("/layout") && req.method === "PUT") ||
-      (path === "/sites" && req.method === "POST")
+      (path === "/sites" && req.method === "POST") ||
+      (path === "/copilot/config" && req.method === "POST") ||
+      (path.startsWith("/copilot/recommendations/") &&
+        (path.endsWith("/apply") || path.endsWith("/dismiss")) &&
+        req.method === "POST")
     ) {
       if (user.role !== "tower") {
         throw forbidden("Control Tower planner role required");
@@ -147,7 +153,10 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(outboundRoutes);
   await app.register(ingestRoutes);
   await app.register(analyticsRoutes);
+  await app.register(copilotRoutes);
   await app.register(streamRoutes);
+
+  initCopilot();
 
   return app;
 }

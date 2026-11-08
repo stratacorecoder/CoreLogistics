@@ -8,7 +8,7 @@ import {
   type SortResult,
   type SortRule,
 } from "@corelogistics/contracts";
-import { api, Empty, Field, Panel, Pill, qs, useAction, useApi, type Refs } from "@corelogistics/ui";
+import { api, Empty, Field, Panel, Pill, qs, ScanButton, useAction, useApi, type Refs } from "@corelogistics/ui";
 import { useState } from "react";
 
 export function SortView({ siteId, refs, onPutaway }: { siteId: string; refs: Refs; onPutaway: () => void }) {
@@ -36,7 +36,22 @@ export function SortView({ siteId, refs, onPutaway }: { siteId: string; refs: Re
               if (scan) void sort(scan);
             }}
           >
-            <input className="input scan-input" autoFocus placeholder="HU-…" value={scan} onChange={(e) => setScan(e.target.value.toUpperCase())} />
+            <div style={{ display: "flex", gap: 6, flex: 1 }}>
+              <input
+                className="input scan-input"
+                style={{ flex: 1 }}
+                autoFocus
+                placeholder="HU-…"
+                value={scan}
+                onChange={(e) => setScan(e.target.value.toUpperCase())}
+              />
+              <ScanButton
+                onScan={(code) => {
+                  setScan(code.toUpperCase());
+                  void sort(code.toUpperCase());
+                }}
+              />
+            </div>
             <button className="btn btn-primary btn-lg" disabled={busy || !scan}>
               Sort
             </button>

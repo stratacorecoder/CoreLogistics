@@ -11,6 +11,7 @@ import {
   Pill,
   Progress,
   qs,
+  ScanButton,
   toLocalInput,
   useAction,
   useApi,
@@ -165,13 +166,23 @@ function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
                       </div>
                     ) : null}
                   </div>
-                  <button
-                    className="btn btn-primary btn-lg"
-                    disabled={busy}
-                    onClick={() => run(() => api.post(`/outbound/picks/${p.id}/confirm`), `Picked ${p.qty} × ${p.skuCode}`)}
-                  >
-                    Picked
-                  </button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      className="btn btn-primary btn-lg"
+                      disabled={busy}
+                      onClick={() => run(() => api.post(`/outbound/picks/${p.id}/confirm`), `Picked ${p.qty} × ${p.skuCode}`)}
+                    >
+                      Picked
+                    </button>
+                    <ScanButton
+                      title="Scan bin or pallet barcode to confirm pick"
+                      onScan={(code) => {
+                        if (code.toUpperCase() === p.fromLocationCode.toUpperCase() || code.toUpperCase() === p.fromHuCode.toUpperCase()) {
+                          void run(() => api.post(`/outbound/picks/${p.id}/confirm`), `Picked ${p.qty} × ${p.skuCode}`);
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             ))}

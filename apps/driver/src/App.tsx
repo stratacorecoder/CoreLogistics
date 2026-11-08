@@ -13,6 +13,7 @@ import {
   LoginPage,
   setActor,
   useAuth,
+  ScanButton,
   Shell,
   useAction,
   useApi,
@@ -313,12 +314,19 @@ function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number 
               />
             </Field>
             <Field label="Delivery notes">
-              <input
-                className="input"
-                placeholder="Gate #, dock notes, conditions..."
-                value={podNotes}
-                onChange={(e) => setPodNotes(e.target.value)}
-              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="input"
+                  style={{ flex: 1 }}
+                  placeholder="Gate #, dock notes, conditions..."
+                  value={podNotes}
+                  onChange={(e) => setPodNotes(e.target.value)}
+                />
+                <ScanButton
+                  title="Scan BOL or seal barcode"
+                  onScan={(code) => setPodNotes((prev) => (prev ? `${prev} [BOL: ${code}]` : `[BOL: ${code}]`))}
+                />
+              </div>
             </Field>
             <SignaturePad onSign={setSignature} onClear={() => setSignature("")} />
             <button

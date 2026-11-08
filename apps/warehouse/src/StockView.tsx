@@ -1,5 +1,5 @@
 import { ZONE_META, type HandlingUnit, type InventoryRow, type SiteBoard } from "@corelogistics/contracts";
-import { api, Empty, MapLegend, Panel, Pill, qs, SiteMap, useApi } from "@corelogistics/ui";
+import { api, Empty, MapLegend, Panel, Pill, qs, ScanButton, SiteMap, useApi } from "@corelogistics/ui";
 import { useMemo, useState } from "react";
 
 export function StockView({ siteId }: { siteId: string }) {
@@ -42,7 +42,28 @@ export function StockView({ siteId }: { siteId: string }) {
               }
             }}
           >
-            <input className="input scan-input" placeholder="HU-…" value={scan} onChange={(e) => setScan(e.target.value.toUpperCase())} />
+            <div style={{ display: "flex", gap: 6, flex: 1 }}>
+              <input
+                className="input scan-input"
+                style={{ flex: 1 }}
+                placeholder="HU-…"
+                value={scan}
+                onChange={(e) => setScan(e.target.value.toUpperCase())}
+              />
+              <ScanButton
+                title="Scan handling unit barcode"
+                onScan={async (code) => {
+                  setScan(code.toUpperCase());
+                  try {
+                    setFound(await api.get<HandlingUnit>(`/warehouse/scan/${encodeURIComponent(code.toUpperCase())}`));
+                    setScanError(null);
+                  } catch (err) {
+                    setFound(null);
+                    setScanError((err as Error).message);
+                  }
+                }}
+              />
+            </div>
           </form>
           {scanError ? <p className="error-note">{scanError}</p> : null}
           {found ? (

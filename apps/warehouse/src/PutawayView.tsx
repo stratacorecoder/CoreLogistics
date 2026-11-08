@@ -1,5 +1,5 @@
 import { ZONE_META, type LocationStatus, type PutawayTask, type SiteBoard } from "@corelogistics/contracts";
-import { api, Empty, fromNow, MapLegend, Panel, qs, SiteMap, useAction, useApi } from "@corelogistics/ui";
+import { api, Empty, fromNow, MapLegend, Panel, qs, ScanButton, SiteMap, useAction, useApi } from "@corelogistics/ui";
 import { useEffect, useMemo, useState } from "react";
 
 export function PutawayView({ siteId }: { siteId: string }) {
@@ -79,19 +79,35 @@ export function PutawayView({ siteId }: { siteId: string }) {
               {!task.suggestedLocationId && !override ? (
                 <p className="warn-text small">No free bin in a compatible zone. Pick one on the map or free up space.</p>
               ) : null}
-              <button
-                className="btn btn-primary btn-lg btn-block"
-                disabled={busy || !target}
-                onClick={async () => {
-                  const r = await run(
-                    () => api.post<PutawayTask>(`/warehouse/putaway/${task.id}/confirm`, { locationId: override?.id }),
-                    (x) => `${x.huCode} stored in ${x.confirmedCode}`,
-                  );
-                  if (r) setSelectedId(null);
-                }}
-              >
-                Confirm stored in {override?.code ?? task.suggestedCode}
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="btn btn-primary btn-lg"
+                  style={{ flex: 1 }}
+                  disabled={busy || !target}
+                  onClick={async () => {
+                    const r = await run(
+                      () => api.post<PutawayTask>(`/warehouse/putaway/${task.id}/confirm`, { locationId: override?.id }),
+                      (x) => `${x.huCode} stored in ${x.confirmedCode}`,
+                    );
+                    if (r) setSelectedId(null);
+                  }}
+                >
+                  Confirm stored in {override?.code ?? task.suggestedCode}
+                </button>
+                <ScanButton
+                  title="Scan bin barcode to confirm"
+                  onScan={async (binCode) => {
+                    const matchedLoc = board.data?.locations.find((l) => l.code.toUpperCase() === binCode.toUpperCase());
+                    if (matchedLoc) {
+                      const r = await run(
+                        () => api.post<PutawayTask>(`/warehouse/putaway/${task.id}/confirm`, { locationId: matchedLoc.id }),
+                        (x) => `${x.huCode} stored in ${x.confirmedCode}`,
+                      );
+                      if (r) setSelectedId(null);
+                    }
+                  }}
+                />
+              </div>
               {override ? (
                 <button className="btn btn-ghost btn-sm" onClick={() => setOverride(null)}>
                   Back to suggestion

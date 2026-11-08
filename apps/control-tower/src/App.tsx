@@ -1,6 +1,6 @@
-import { ActorBadge, LoginPage, SitePicker, Shell, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
+import { ActorBadge, CopilotBadge, CopilotDrawer, LoginPage, SitePicker, Shell, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
 import { BarChart3, CalendarClock, LayoutGrid, Radio, Truck } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { AnalyticsView } from "./AnalyticsView";
 import { DesignerView } from "./DesignerView";
 import { DispatchView } from "./DispatchView";
@@ -14,6 +14,7 @@ export default function App() {
   const refs = useRefs();
   const [view, setView] = useLocalState<View>("tower.view", "live");
   const [siteId, setSiteIdRaw] = useLocalState<string | null>("tower.site", null);
+  const [copilotOpen, setCopilotOpen] = useState(false);
   const setSiteId = useCallback((id: string) => setSiteIdRaw(id), [setSiteIdRaw]);
   const needsSite = view === "live" || view === "designer" || view === "analytics";
 
@@ -37,6 +38,7 @@ export default function App() {
       onNav={(id) => setView(id as View)}
       right={
         <>
+          <CopilotBadge siteId={siteId} onOpen={() => setCopilotOpen(true)} />
           {needsSite ? <SitePicker sites={refs.sites} value={siteId} onChange={setSiteId} /> : null}
           <ActorBadge placeholder="Planner name" />
         </>
@@ -47,6 +49,7 @@ export default function App() {
       {view === "fleet" ? <FleetView refs={refs} /> : null}
       {view === "designer" && siteId ? <DesignerView siteId={siteId} /> : null}
       {view === "analytics" && siteId ? <AnalyticsView siteId={siteId} refs={refs} /> : null}
+      {copilotOpen ? <CopilotDrawer siteId={siteId} onClose={() => setCopilotOpen(false)} /> : null}
     </Shell>
   );
 }

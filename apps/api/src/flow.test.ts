@@ -713,4 +713,203 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       assert.equal(res.statusCode, 401);
     });
   });
+
+  describe("6. Agentic Exception Copilot & Disruption Engine", () => {
+    let copilotTripId: string;
+    let yardVisitId: string;
+    let appointmentDockId: string;
+    let recommendationId: string;
+
+    before(async () => {
+      const wh = one("SELECT id FROM sites WHERE code = 'WH-C'")!;
+      const depot = one("SELECT id FROM sites WHERE code = 'DEP-N'")!;
+
+      // Find an active dock door at WH-C
+      const dock = one("SELECT id, code FROM locations WHERE site_id = ? AND kind = 'dock_door' AND active = 1 LIMIT 1", [wh.id])!;
+      appointmentDockId = dock.id;
+
+      // Create test vehicles
+      run("DELETE FROM vehicles WHERE id IN ('veh_cop_trip', 'veh_cop_yard')");
+      run(
+        `INSERT INTO vehicles (id, code, plate, kind, model, status, home_site_id)
+         VALUES ('veh_cop_trip', 'V-COP-01', 'COP-TRIP-1', 'truck', 'Inbound Freight', 'available', ?)`,
+        [depot.id],
+      );
+      run(
+        `INSERT INTO vehicles (id, code, plate, kind, model, status, home_site_id)
+         VALUES ('veh_cop_yard', 'V-COP-02', 'COP-YARD-2', 'truck', 'Yard Shuttle', 'available', ?)`,
+        [wh.id],
+      );
+
+      // Create an inbound trip from Depot to WH-C
+      const tripRes = await app.inject({
+        method: "POST",
+        url: "/trips",
+        headers: { "x-session": towerToken },
+        payload: {
+          kind: "inbound",
+          originSiteId: depot.id,
+          destinationSiteId: wh.id,
+          vehicleId: "veh_cop_trip",
+          plannedDeparture: new Date(Date.now() - 3600_000).toISOString(),
+          plannedArrival: new Date(Date.now() + 1800_000).toISOString(),
+          notes: "Scheduled inbound high-priority freight",
+        },
+      });
+      assert.equal(tripRes.statusCode, 200);
+      copilotTripId = JSON.parse(tripRes.payload).id;
+
+      // Dispatch trip
+      await app.inject({ method: "POST", url: `/trips/${copilotTripId}/dispatch`, headers: { "x-session": towerToken } });
+
+      // Schedule a dock appointment at WH-C for this trip
+      const now = Date.now();
+      const apptRes = await app.inject({
+        method: "POST",
+        url: "/gate/appointments",
+        headers: { "x-session": towerToken },
+        payload: {
+          siteId: wh.id,
+          tripId: copilotTripId,
+          plate: "COP-TRIP-1",
+          carrier: "Priority Express",
+          purpose: "unload",
+          locationId: appointmentDockId,
+          windowStart: new Date(now).toISOString(),
+          windowEnd: new Date(now + 3600_000).toISOString(),
+          notes: "Reserved dock window",
+        },
+      });
+      assert.equal(apptRes.statusCode, 200);
+
+      // Check in the other vehicle into the yard at WH-C so it is in_yard
+      const checkInRes = await app.inject({
+        method: "POST",
+        url: "/gate/check-in",
+        headers: { "x-session": towerToken },
+        payload: {
+          siteId: wh.id,
+          vehicleId: "veh_cop_yard",
+          sealNo: "SEAL-YARD-01",
+          notes: "Waiting in yard for open dock",
+        },
+      });
+      assert.equal(checkInRes.statusCode, 200);
+      yardVisitId = JSON.parse(checkInRes.payload).id;
+    });
+
+    it("evaluates driver disruption event and generates Copilot recommendation", async () => {
+      // Driver reports breakdown issue on copilotTripId
+      const issueRes = await app.inject({
+        method: "POST",
+        url: `/trips/${copilotTripId}/issues`,
+        headers: { "x-session": towerToken },
+        payload: {
+          kind: "breakdown",
+          message: "Engine cooling leak; truck immobilized at mile marker 44",
+        },
+      });
+      assert.equal(issueRes.statusCode, 200);
+
+      // Fetch copilot recommendations
+      const recsRes = await app.inject({
+        method: "GET",
+        url: "/copilot/recommendations",
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(recsRes.statusCode, 200);
+      const recs = JSON.parse(recsRes.payload);
+      assert.ok(recs.length > 0);
+
+      const rec = recs.find((r: { tripId: string }) => r.tripId === copilotTripId);
+      assert.ok(rec, "Expected recommendation for broken-down trip");
+      assert.equal(rec.status, "pending");
+      assert.equal(rec.severity, "critical");
+      assert.ok(rec.prescribedActions.length >= 1);
+
+      const swapAction = rec.prescribedActions.find((a: { type: string }) => a.type === "swap_dock");
+      assert.ok(swapAction, "Expected swap_dock action");
+      assert.ok(swapAction.payload.visitId);
+
+      recommendationId = rec.id;
+    });
+
+    it("executes 1-click Copilot recommendation and applies dock assignment atomically", async () => {
+      const applyRes = await app.inject({
+        method: "POST",
+        url: `/copilot/recommendations/${recommendationId}/apply`,
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(applyRes.statusCode, 200);
+      const appliedRec = JSON.parse(applyRes.payload);
+      assert.equal(appliedRec.status, "applied");
+      assert.ok(appliedRec.appliedAt);
+
+      // Verify that the assigned yard truck is now at the dock door
+      const targetVisitId = appliedRec.prescribedActions[0].payload.visitId;
+      const visitRes = await app.inject({
+        method: "GET",
+        url: `/gate/visits/${targetVisitId}`,
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(visitRes.statusCode, 200);
+      const visit = JSON.parse(visitRes.payload);
+      assert.equal(visit.status, "at_dock");
+      assert.equal(visit.dock?.locationId, appointmentDockId);
+    });
+
+    it("rejects non-tower role attempting mutating copilot operations with 403 Forbidden", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/copilot/config",
+        headers: { "x-session": warehouseToken },
+        payload: { autoPilot: true },
+      });
+      assert.equal(res.statusCode, 403);
+    });
+
+    it("verifies Auto-Pilot toggle config and auto-resolves subsequent disruptions", async () => {
+      // Check config endpoint
+      const cfgGet = await app.inject({
+        method: "GET",
+        url: "/copilot/config",
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(cfgGet.statusCode, 200);
+      assert.equal(JSON.parse(cfgGet.payload).autoPilot, false);
+
+      // Turn on Auto-Pilot
+      const cfgSet = await app.inject({
+        method: "POST",
+        url: "/copilot/config",
+        headers: { "x-session": towerToken },
+        payload: { autoPilot: true },
+      });
+      assert.equal(cfgSet.statusCode, 200);
+      assert.equal(JSON.parse(cfgSet.payload).autoPilot, true);
+
+      // Report another issue on the trip with 'delay'
+      const issueRes2 = await app.inject({
+        method: "POST",
+        url: `/trips/${copilotTripId}/issues`,
+        headers: { "x-session": towerToken },
+        payload: {
+          kind: "delay",
+          message: "Heavy detour congestion adds 45 minutes",
+        },
+      });
+      assert.equal(issueRes2.statusCode, 200);
+
+      // Verify Auto-Pilot executed the recommendation automatically
+      const recsRes = await app.inject({
+        method: "GET",
+        url: "/copilot/recommendations",
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(recsRes.statusCode, 200);
+      const recs = JSON.parse(recsRes.payload);
+      const autoRec = recs.find((r: { tripId: string; status: string }) => r.tripId === copilotTripId && r.status === "auto_applied");
+      assert.ok(autoRec, "Expected auto_applied recommendation under Auto-Pilot mode");
+    });
+  });
 });
