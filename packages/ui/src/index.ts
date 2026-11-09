@@ -4,6 +4,8 @@ export * from "./live.js";
 export * from "./format.js";
 export * from "./SiteMap.js";
 export * from "./components.js";
+export * from "./deskNotice.js";
 export * from "./refs.js";
 export * from "./CameraScanner.js";
+export * from "./confirmError.js";
 export * from "./CopilotTray.js";

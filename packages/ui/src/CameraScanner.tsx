@@ -1,5 +1,8 @@
 import { Camera, Flashlight, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { fallbackFormatValues, ScanSession, shouldReleaseCamera, type ScanSessionHost } from "./scanSession.js";
+
+type CaptureMethod = "camera" | "manual";
 
 function playBeep() {
   try {
@@ -9,8 +12,8 @@ function playBeep() {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(1046.5, ctx.currentTime); // C6
-    osc.frequency.exponentialRampToValueAtTime(1318.5, ctx.currentTime + 0.08); // E6
+    osc.frequency.setValueAtTime(1046.5, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1318.5, ctx.currentTime + 0.08);
     gain.gain.setValueAtTime(0.15, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
     osc.connect(gain);
@@ -21,149 +24,111 @@ function playBeep() {
     osc.start();
     osc.stop(ctx.currentTime + 0.08);
   } catch {
-    // Audio context may be restricted before user gesture
+    // Audio context may be restricted before a user gesture.
   }
 }
 
 function triggerHaptic() {
   try {
-    if (typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate([40, 20, 60]);
-    }
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([40, 20, 60]);
   } catch {
-    // Ignore devices without vibration support
+    // Ignore devices without vibration support.
   }
 }
 
 interface CameraScannerProps {
-  onScan: (code: string) => void;
+  onScan: (code: string, method?: CaptureMethod) => void;
   onClose: () => void;
   title?: string;
 }
 
 export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const onScanRef = useRef(onScan);
+  const startRef = useRef<() => void>(() => {});
+  const sessionRef = useRef<ScanSession | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const [manualCode, setManualCode] = useState("");
-  const [detectorSupported, setDetectorSupported] = useState(true);
-  const scannedRef = useRef(false);
+  const [usingFallback, setUsingFallback] = useState(false);
+
+  onScanRef.current = onScan;
 
   useEffect(() => {
-    scannedRef.current = false;
-    let active = true;
-    let scanInterval: ReturnType<typeof setInterval> | null = null;
-
-    async function startCamera() {
-      try {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          setError("Camera access is not supported on this device/browser.");
-          return;
-        }
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
+    const detector = (window as unknown as { BarcodeDetector?: ScanSessionHost["detector"] }).BarcodeDetector;
+    const session = new ScanSession({
+      getUserMedia: navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices),
+      detector,
+      schedule: (run, intervalMs) => {
+        const id = window.setInterval(() => void run(), intervalMs);
+        return { cancel: () => window.clearInterval(id) };
+      },
+      loadFallback: async (video, onText) => {
+        const { BrowserMultiFormatReader, BarcodeFormat } = await import("@zxing/browser");
+        const reader = new BrowserMultiFormatReader();
+        reader.possibleFormats = fallbackFormatValues(BarcodeFormat);
+        return reader.decodeFromVideoElement(video as HTMLVideoElement, (result) => {
+          const text = result?.getText();
+          if (text) onText(text);
         });
-
-        if (!active) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
-        }
-
-        // Check torch capability
-        const track = stream.getVideoTracks()[0];
-        if (track && typeof track.getCapabilities === "function") {
-          const caps = track.getCapabilities() as { torch?: boolean };
-          if (caps.torch) setHasTorch(true);
-        }
-
-        // Start scanning loop
-        const BarcodeDetectorClass = (window as unknown as { BarcodeDetector?: any }).BarcodeDetector;
-        if (BarcodeDetectorClass) {
-          const detector = new BarcodeDetectorClass({
-            formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e"],
-          });
-
-          scanInterval = setInterval(async () => {
-            if (!active || scannedRef.current || !videoRef.current) return;
-            try {
-              if (videoRef.current.readyState >= 2) {
-                const barcodes = await detector.detect(videoRef.current);
-                if (barcodes && barcodes.length > 0 && !scannedRef.current) {
-                  const rawValue = barcodes[0].rawValue;
-                  if (rawValue) {
-                    scannedRef.current = true;
-                    playBeep();
-                    triggerHaptic();
-                    if (scanInterval) clearInterval(scanInterval);
-                    onScan(rawValue.trim());
-                  }
-                }
-              }
-            } catch {
-              // Frame dropped or detector busy
-            }
-          }, 150);
-        } else {
-          setDetectorSupported(false);
-        }
-      } catch (err) {
-        if (active) {
-          setError(`Camera access denied or unavailable: ${(err as Error).message}`);
-        }
-      }
-    }
-
-    startCamera();
-
-    return () => {
-      active = false;
-      if (scanInterval) {
-        clearInterval(scanInterval);
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
+      },
+      onCode: (code, method) => {
+        playBeep();
+        triggerHaptic();
+        onScanRef.current(code, method);
+      },
+      onChange: (state) => {
+        setError(state.error);
+        setPaused(state.paused);
+        setUsingFallback(state.usingFallback);
+        setHasTorch(state.hasTorch);
+        setTorchOn(state.torchOn);
+      },
+    });
+    sessionRef.current = session;
+    startRef.current = () => {
+      void session.start(videoRef.current);
     };
-  }, [onScan]);
+    void session.start(videoRef.current);
+    const onVisibility = () => {
+      if (shouldReleaseCamera(document.hidden)) session.background();
+    };
+    const onPageHide = () => session.background();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      session.dispose();
+      sessionRef.current = null;
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, []);
 
   const toggleTorch = async () => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
-    if (track && typeof track.applyConstraints === "function") {
-      try {
-        const next = !torchOn;
-        await (track as any).applyConstraints({ advanced: [{ torch: next }] });
-        setTorchOn(next);
-      } catch {
-        // Torch toggle failed
-      }
+    const track = sessionRef.current?.currentStream()?.getVideoTracks()[0];
+    if (!track || typeof track.applyConstraints !== "function") return;
+    try {
+      const next = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
+      setTorchOn(next);
+    } catch {
+      setHasTorch(false);
     }
   };
 
-  const handleManualSubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const handleManualSubmit = (event: FormEvent) => {
+    event.preventDefault();
     if (!manualCode.trim()) return;
-    playBeep();
-    triggerHaptic();
-    onScan(manualCode.trim());
+    sessionRef.current?.deliver(manualCode, "manual");
   };
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="scan-title"
       style={{
         position: "fixed",
         inset: 0,
@@ -190,7 +155,6 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
           flexDirection: "column",
         }}
       >
-        {/* Header */}
         <div
           style={{
             padding: "14px 18px",
@@ -201,117 +165,57 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Camera size={18} color="var(--accent, #0066cc)" />
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{title}</span>
+            <Camera size={18} color="var(--accent, #0066cc)" aria-hidden="true" />
+            <span id="scan-title" style={{ fontWeight: 600, fontSize: 14 }}>{title}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {hasTorch ? (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={toggleTorch}
-                title="Toggle flashlight"
-                style={{ padding: "4px 8px" }}
-              >
-                <Flashlight size={16} color={torchOn ? "#ff9500" : "currentColor"} />
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void toggleTorch()} aria-pressed={torchOn} aria-label="Toggle flashlight" style={{ padding: "4px 8px" }}>
+                <Flashlight size={16} color={torchOn ? "#ff9500" : "currentColor"} aria-hidden="true" />
               </button>
             ) : null}
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={onClose}
-              title="Close scanner"
-              style={{ padding: "4px 8px" }}
-            >
-              <X size={18} />
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close scanner" style={{ padding: "4px 8px" }}>
+              <X size={18} aria-hidden="true" />
             </button>
           </div>
         </div>
 
-        {/* Viewfinder */}
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            height: 280,
-            background: "#000000",
-            overflow: "hidden",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <div style={{ position: "relative", width: "100%", height: 280, background: "#000000", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <video ref={videoRef} playsInline autoPlay muted aria-label="Rear camera preview" style={{ width: "100%", height: "100%", objectFit: "cover", display: error || paused ? "none" : "block" }} />
+          {paused ? (
+            <div style={{ padding: 20, textAlign: "center" }}>
+              <p style={{ color: "#e2e8f0", fontSize: 13 }}>Camera paused while the app was in the background.</p>
+              <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => startRef.current()}>
+                Resume camera
+              </button>
+            </div>
+          ) : null}
           {error ? (
             <div style={{ padding: 20, color: "#f87171", textAlign: "center", fontSize: 13 }}>
               <p>{error}</p>
-              <p className="small muted" style={{ marginTop: 8, color: "#94a3b8" }}>
-                Use manual input below instead.
-              </p>
+              <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => startRef.current()}>
+                Allow camera
+              </button>
             </div>
-          ) : (
-            <>
-              <video
-                ref={videoRef}
-                playsInline
-                autoPlay
-                muted
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                }}
-              />
-              {/* Aiming Reticle */}
-              <div
-                style={{
-                  position: "absolute",
-                  width: 220,
-                  height: 140,
-                  border: "2px solid rgba(0, 122, 255, 0.8)",
-                  borderRadius: 14,
-                  boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.45)",
-                  pointerEvents: "none",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: "0 0 0 0",
-                    border: "2px solid #34c759",
-                    borderRadius: 12,
-                    animation: "pulse 1.8s infinite ease-in-out",
-                  }}
-                />
-              </div>
-            </>
-          )}
+          ) : null}
+          {!error && !paused ? (
+            <div aria-hidden="true" style={{ position: "absolute", width: 220, height: 140, border: "2px solid rgba(0, 122, 255, 0.8)", borderRadius: 14, boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.45)", pointerEvents: "none" }} />
+          ) : null}
         </div>
 
-        {!detectorSupported ? (
+        {usingFallback ? (
           <div style={{ padding: "8px 14px", background: "rgba(255, 149, 0, 0.12)", color: "var(--warn, #b45309)", fontSize: 11, borderTop: "1px solid var(--border)" }}>
-            Automatic camera barcode decoding requires Chrome, Edge, or Safari 17+. Please enter code below manually.
+            This browser has no built-in barcode detector. A backup decoder is reading the rear camera.
           </div>
         ) : null}
 
-        {/* Manual Fallback Input */}
-        <form
-          onSubmit={handleManualSubmit}
-          style={{
-            padding: 14,
-            display: "flex",
-            gap: 8,
-            borderTop: "1px solid var(--border-subtle, rgba(0, 0, 0, 0.08))",
-          }}
-        >
-          <input
-            className="input"
-            style={{ flex: 1, fontSize: 13 }}
-            placeholder="Or type/paste barcode manually…"
-            value={manualCode}
-            onChange={(e) => setManualCode(e.target.value)}
-          />
+        <form onSubmit={handleManualSubmit} style={{ padding: 14, display: "flex", gap: 8, borderTop: "1px solid var(--border-subtle, rgba(0, 0, 0, 0.08))" }}>
+          <label htmlFor="scan-manual" className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }}>
+            Manual entry
+          </label>
+          <input id="scan-manual" className="input" style={{ flex: 1, fontSize: 13 }} placeholder="Manual entry" value={manualCode} onChange={(event) => setManualCode(event.target.value)} />
           <button type="submit" className="btn btn-primary btn-sm" disabled={!manualCode.trim()}>
-            Submit
+            Use code
           </button>
         </form>
       </div>
@@ -320,7 +224,7 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
 }
 
 interface ScanButtonProps {
-  onScan: (code: string) => void;
+  onScan: (code: string, method?: CaptureMethod) => void;
   title?: string;
   className?: string;
   style?: CSSProperties;
@@ -329,31 +233,28 @@ interface ScanButtonProps {
 export function ScanButton({ onScan, title = "Scan barcode", className = "btn btn-ghost btn-sm", style }: ScanButtonProps) {
   const [open, setOpen] = useState(false);
 
-  const handleScan = (code: string) => {
-    setOpen(false);
-    onScan(code);
-  };
-
   return (
     <>
       <button
         type="button"
         className={className}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "6px 9px",
-          gap: 4,
-          ...style,
-        }}
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "6px 9px", gap: 4, ...style }}
         onClick={() => setOpen(true)}
-        title={title}
+        aria-label={title}
       >
-        <Camera size={15} />
+        <Camera size={15} aria-hidden="true" />
         <span style={{ fontSize: 12 }}>Scan</span>
       </button>
-      {open ? <CameraScanner onScan={handleScan} onClose={() => setOpen(false)} title={title} /> : null}
+      {open ? (
+        <CameraScanner
+          title={title}
+          onClose={() => setOpen(false)}
+          onScan={(code, method) => {
+            setOpen(false);
+            onScan(code, method ?? "camera");
+          }}
+        />
+      ) : null}
     </>
   );
 }

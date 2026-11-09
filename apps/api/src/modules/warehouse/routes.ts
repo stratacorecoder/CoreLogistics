@@ -20,6 +20,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { ctxOf } from "../../events.js";
+import { stockConfirmAuth, tokenOf } from "../auth/service.js";
 import {
   closeReceipt,
   confirmPutaway,
@@ -177,6 +178,7 @@ export default async function warehouseRoutes(app: FastifyInstance) {
     {
       schema: { tags, params: IdParamsSchema, body: PutawayConfirmInputSchema, response: { 200: PutawayTaskSchema } },
     },
-    async (req) => confirmPutaway(req.params.id, req.body.locationId, ctxOf(req)),
+    async (req) =>
+      confirmPutaway(req.params.id, req.body, ctxOf(req), stockConfirmAuth(tokenOf(req))),
   );
 }

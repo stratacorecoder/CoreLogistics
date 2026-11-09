@@ -1,13 +1,35 @@
-import { ZONE_META, type LocationStatus, type PutawayTask, type SiteBoard } from "@corelogistics/contracts";
-import { api, Empty, fromNow, MapLegend, Panel, qs, ScanButton, SiteMap, useAction, useApi } from "@corelogistics/ui";
+import { ZONE_META, type LocationStatus, type PutawayTask, type ScanEntryMethod, type SiteBoard } from "@corelogistics/contracts";
+import {
+  api,
+  classifyConfirmError,
+  Empty,
+  fromNow,
+  MapLegend,
+  newConfirmRequestId,
+  Panel,
+  qs,
+  ScanButton,
+  SiteMap,
+  useAction,
+  useApi,
+  type ConfirmFailure,
+} from "@corelogistics/ui";
 import { useEffect, useMemo, useState } from "react";
 
-export function PutawayView({ siteId }: { siteId: string }) {
+export function PutawayView({ siteId, canOverride = false }: { siteId: string; canOverride?: boolean }) {
   const tasks = useApi<PutawayTask[]>(`/warehouse/putaway${qs({ siteId, status: "open" })}`);
   const board = useApi<SiteBoard>(`/sites/${siteId}/board`);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [override, setOverride] = useState<LocationStatus | null>(null);
   const [rack, setRack] = useState<LocationStatus[] | null>(null);
+  const [huCode, setHuCode] = useState("");
+  const [binCode, setBinCode] = useState("");
+  const [method, setMethod] = useState<ScanEntryMethod>("keyboard");
+  const [detectedHu, setDetectedHu] = useState<string | null>(null);
+  const [detectedBin, setDetectedBin] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [requestId, setRequestId] = useState(newConfirmRequestId);
+  const [failure, setFailure] = useState<ConfirmFailure | null>(null);
   const { busy, run } = useAction();
 
   const task = tasks.data?.find((t) => t.id === selectedId) ?? null;
@@ -17,10 +39,40 @@ export function PutawayView({ siteId }: { siteId: string }) {
   useEffect(() => {
     setOverride(null);
     setRack(null);
+    setHuCode("");
+    setBinCode("");
+    setDetectedHu(null);
+    setDetectedBin(null);
+    setReason("");
+    setFailure(null);
+    setMethod("keyboard");
+    setRequestId(newConfirmRequestId());
   }, [selectedId]);
 
   const target = override?.id ?? task?.suggestedLocationId ?? null;
   const highlight = useMemo(() => [target, task?.fromLocationId].filter((x): x is string => Boolean(x)), [target, task]);
+
+  const confirm = (overrideMode: boolean) => {
+    if (!task) return;
+    void run(async () => {
+      try {
+        const result = await api.post<PutawayTask>(`/warehouse/putaway/${task.id}/confirm`, {
+          mode: overrideMode ? "override" : "match",
+          requestId,
+          entryMethod: method,
+          huBarcode: huCode.trim() || undefined,
+          binBarcode: binCode.trim() || undefined,
+          ...(overrideMode ? { reason: reason.trim() } : {}),
+        });
+        setFailure(null);
+        setSelectedId(null);
+        return result;
+      } catch (err) {
+        setFailure(classifyConfirmError(err));
+        throw err;
+      }
+    }, (result) => `Stock confirmed: ${result.huCode} stored in ${result.confirmedCode}`);
+  };
 
   return (
     <div className="three" style={{ gridTemplateColumns: "320px minmax(0, 1fr) 340px" }}>
@@ -79,37 +131,93 @@ export function PutawayView({ siteId }: { siteId: string }) {
               {!task.suggestedLocationId && !override ? (
                 <p className="warn-text small">No free bin in a compatible zone. Pick one on the map or free up space.</p>
               ) : null}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="btn btn-primary btn-lg"
-                  style={{ flex: 1 }}
-                  disabled={busy || !target}
-                  onClick={async () => {
-                    const r = await run(
-                      () => api.post<PutawayTask>(`/warehouse/putaway/${task.id}/confirm`, { locationId: override?.id }),
-                      (x) => `${x.huCode} stored in ${x.confirmedCode}`,
-                    );
-                    if (r) setSelectedId(null);
+              <label className="small" htmlFor={`put-hu-${task.id}`}>Unit barcode</label>
+              <div className="row">
+                <input
+                  id={`put-hu-${task.id}`}
+                  className="input scan-input grow"
+                  value={huCode}
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setHuCode(event.target.value);
+                    setMethod("keyboard");
+                    setDetectedHu(null);
                   }}
-                >
-                  Confirm stored in {override?.code ?? task.suggestedCode}
-                </button>
+                />
                 <ScanButton
-                  title="Scan bin barcode to confirm"
-                  onScan={async (binCode) => {
-                    const matchedLoc = board.data?.locations.find((l) => l.code.toUpperCase() === binCode.toUpperCase());
-                    if (matchedLoc) {
-                      const r = await run(
-                        () => api.post<PutawayTask>(`/warehouse/putaway/${task.id}/confirm`, { locationId: matchedLoc.id }),
-                        (x) => `${x.huCode} stored in ${x.confirmedCode}`,
-                      );
-                      if (r) setSelectedId(null);
-                    }
+                  title="Scan unit barcode"
+                  onScan={(scanned, via) => {
+                    setHuCode(scanned);
+                    setMethod(via === "manual" ? "manual" : "camera");
+                    setDetectedHu(scanned);
                   }}
                 />
               </div>
+              <label className="small" htmlFor={`put-bin-${task.id}`}>Destination bin barcode</label>
+              <div className="row">
+                <input
+                  id={`put-bin-${task.id}`}
+                  className="input scan-input grow"
+                  value={binCode}
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setBinCode(event.target.value);
+                    setMethod("keyboard");
+                    setDetectedBin(null);
+                    setOverride(null);
+                  }}
+                />
+                <ScanButton
+                  title="Scan destination bin barcode"
+                  onScan={(scanned, via) => {
+                    setBinCode(scanned);
+                    setMethod(via === "manual" ? "manual" : "camera");
+                    setDetectedBin(scanned);
+                    const matched = board.data?.locations.find((location) => location.code.toUpperCase() === scanned.toUpperCase());
+                    setOverride(matched ?? null);
+                  }}
+                />
+              </div>
+              {detectedHu || detectedBin ? (
+                <p className="small">
+                  Code detected{detectedHu ? `: unit ${detectedHu}` : ""}{detectedBin ? `${detectedHu ? ", " : ": "}bin ${detectedBin}` : ""}. Stock is not confirmed until you submit.
+                </p>
+              ) : null}
+              <button
+                className="btn btn-primary btn-lg"
+                disabled={busy || !huCode.trim() || !binCode.trim()}
+                onClick={() => void confirm(false)}
+              >
+                Confirm stored in {override?.code ?? (binCode.trim() || task.suggestedCode)}
+              </button>
+              {failure ? (
+                <div className="error-note" role="alert">
+                  <strong>{failure.title}.</strong> {failure.message}
+                  {failure.retry ? (
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} disabled={busy} onClick={() => void confirm(false)}>
+                      Retry same request
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {canOverride ? (
+                <div className="row">
+                  <input className="input grow" placeholder="Tower reason for bypassing the labels" value={reason} onChange={(event) => setReason(event.target.value)} />
+                  <button className="btn btn-ghost" disabled={busy || reason.trim().length < 3} onClick={() => void confirm(true)}>
+                    Tower review
+                  </button>
+                </div>
+              ) : null}
               {override ? (
-                <button className="btn btn-ghost btn-sm" onClick={() => setOverride(null)}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setOverride(null);
+                    setBinCode(task.suggestedCode ?? "");
+                    setDetectedBin(null);
+                    setMethod("manual");
+                  }}
+                >
                   Back to suggestion
                 </button>
               ) : null}
@@ -127,7 +235,12 @@ export function PutawayView({ siteId }: { siteId: string }) {
                     className={`bin-btn${override?.id === l.id ? " is-on" : ""}`}
                     disabled={!task || l.occupied >= l.capacity || wrongZone}
                     title={wrongZone ? "Hazmat must go to hazmat bins only" : l.refs.join(", ")}
-                    onClick={() => setOverride(l)}
+                    onClick={() => {
+                      setOverride(l);
+                      setBinCode(l.code);
+                      setMethod("manual");
+                      setDetectedBin(l.code);
+                    }}
                   >
                     {l.code}
                     <small>

@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "dev": "tsx watch --clear-screen=false src/index.ts --demo",
     "start": "tsx src/index.ts",
     "db:reset": "tsx src/reset.ts",
     "openapi": "tsx src/export-openapi.ts",
-    "test": "CORELOGISTICS_DB=:memory: tsx --test src/flow.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

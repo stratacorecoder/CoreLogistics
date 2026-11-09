@@ -4,7 +4,7 @@
 @import "./dispatch.css";
 @import "./designer-live.css";
 
-.palette { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.palette { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; }
 .palette-item {
   display: flex;
   align-items: center;

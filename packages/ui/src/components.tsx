@@ -2,6 +2,7 @@ import { humanize, type EventRecord, type Site } from "@corelogistics/contracts"
 import { LogOut, Moon, PanelLeft, PanelLeftClose, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getActor } from "./api.js";
+import { usePhoneLayout } from "./deskNotice.js";
 import { SignIn2 } from "./components/ui/clean-minimal-sign-in.js";
 import { fmtDateTime } from "./format.js";
 import { useStreamStatus, useToasts } from "./live.js";
@@ -249,6 +250,8 @@ export function Shell({
     }
     return false;
   });
+  const phone = usePhoneLayout();
+  const compactNav = navCollapsed && !phone;
 
   const toggleNav = () => {
     setNavCollapsed((prev) => {
@@ -277,7 +280,7 @@ export function Shell({
   const brand = (
     <div className={nav ? "brand side-brand" : "brand"}>
       <span className="brand-mark">{mark}</span>
-      {!navCollapsed ? (
+      {!compactNav ? (
         <div>
           <p className="brand-name">{title}</p>
           <p className="brand-role">{role}</p>
@@ -288,20 +291,20 @@ export function Shell({
   return (
     <div
       ref={shellRef}
-      className={`${tone === "floor" ? "shell theme-floor" : "shell"}${nav ? " has-nav" : ""}${nav && navCollapsed ? " is-nav-collapsed" : ""}`}
+      className={`${tone === "floor" ? "shell theme-floor" : "shell"}${nav ? " has-nav" : ""}${nav && compactNav ? " is-nav-collapsed" : ""}`}
     >
       {nav ? (
-        <aside className={`side-nav${navCollapsed ? " is-collapsed" : ""}`}>
+        <aside className={`side-nav${compactNav ? " is-collapsed" : ""}`}>
           <div className="side-brand-row">
             {brand}
             <button
               type="button"
               className="nav-collapse-btn"
               onClick={toggleNav}
-              title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-label={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={compactNav ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={compactNav ? "Expand sidebar" : "Collapse sidebar"}
             >
-              {navCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+              {compactNav ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
             </button>
           </div>
           <nav>
@@ -313,10 +316,10 @@ export function Shell({
                   type="button"
                   className={`nav-item${item.id === navValue ? " is-on" : ""}`}
                   onClick={() => onNav?.(item.id)}
-                  title={navCollapsed ? item.label : undefined}
+                  title={compactNav ? item.label : undefined}
                 >
                   {Icon ? <Icon className="nav-item-icon" /> : null}
-                  {!navCollapsed ? <span>{item.label}</span> : null}
+                  {!compactNav ? <span>{item.label}</span> : null}
                 </button>
               );
             })}
@@ -324,9 +327,9 @@ export function Shell({
           <div className="nav-spacer" />
           {onSwitchRole ? (
             <div className="nav-footer">
-              <div className="nav-user-info" title={navCollapsed ? `${actorName} (${role})` : undefined}>
-                <div className="nav-user-avatar">{initials}</div>
-                {!navCollapsed ? (
+                <div className="nav-user-info" title={compactNav ? `${actorName} (${role})` : undefined}>
+                  <div className="nav-user-avatar">{initials}</div>
+                  {!compactNav ? (
                   <div className="nav-user-meta">
                     <span className="nav-user-name">{actorName}</span>
                     <span className="nav-user-role">{role}</span>
@@ -398,23 +401,37 @@ export function Toasts() {
 }
 
 const SOURCE_LABEL: Record<string, string> = { manual: "Manual", camera: "Camera", rfid: "RFID", gps: "GPS", system: "System" };
+const CRITICAL_ISSUES = new Set(["accident", "breakdown"]);
+
+/** Driver reports stand apart from ordinary timeline lines. */
+export function issueReport(event: EventRecord): { kind: string; tone: "danger" | "warn"; text: string; code: string } | null {
+  if (event.type !== "trip.issue") return null;
+  const rawKind = event.payload.kind;
+  const kind = typeof rawKind === "string" && rawKind ? rawKind : "other";
+  const code = event.message.split(" ")[0] ?? "";
+  const text = event.message.replace(/^\S+\s+\S+:\s*/, "").trim() || event.message;
+  return { kind, tone: CRITICAL_ISSUES.has(kind) ? "danger" : "warn", text, code };
+}
 
 export function EventFeed({ events, empty = "No events yet" }: { events: EventRecord[] | undefined; empty?: string }) {
   if (!events?.length) return <Empty>{empty}</Empty>;
   return (
     <ol className="event-feed">
-      {events.map((e) => (
-        <li key={e.id}>
-          <span className="event-time">{fmtDateTime(e.occurredAt)}</span>
-          <span className="event-src" title={e.source}>
-            <span className="event-src">{SOURCE_LABEL[e.source] ?? e.source}</span>
-          </span>
-          <span className="event-msg">
-            {e.message}
-            {e.actor ? <span className="event-actor"> · {e.actor}</span> : null}
-          </span>
-        </li>
-      ))}
+      {events.map((e) => {
+        const report = issueReport(e);
+        return (
+          <li key={e.id} className={report ? `is-issue is-${report.tone}` : undefined}>
+            <span className="event-time">{fmtDateTime(e.occurredAt)}</span>
+            <span className="event-src" title={e.source}>
+              {report ? humanize(report.kind) : (SOURCE_LABEL[e.source] ?? e.source)}
+            </span>
+            <span className="event-msg">
+              {report ? report.text : e.message}
+              {e.actor ? <span className="event-actor"> · {e.actor}</span> : null}
+            </span>
+          </li>
+        );
+      })}
     </ol>
   );
 }

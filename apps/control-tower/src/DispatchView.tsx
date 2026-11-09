@@ -12,6 +12,7 @@ import {
   api,
   EventFeed,
   Field,
+  issueReport,
   fmtDateTime,
   fromLocalInput,
   fromNow,
@@ -42,7 +43,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const COLUMNS: Array<{
   status: TripStatus;
@@ -57,18 +58,37 @@ const COLUMNS: Array<{
   { status: "completed", label: "Completed", icon: CheckCircle2, color: "var(--muted)" },
 ];
 
-export function DispatchView({ refs }: { refs: Refs }) {
+export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: string; key: number } | null }) {
   const now = useNow(30_000);
   const active = useApi<Trip[]>("/trips?active=true&limit=300");
   const recent = useApi<Trip[]>("/trips?status=completed,cancelled&active=false&limit=20");
+  const issues = useApi<EventRecord[]>("/events?type=trip.issue&limit=80");
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("");
+  const appliedFocus = useRef<number | null>(null);
   const [quickFilter, setQuickFilter] = useState<
     "all" | "delayed" | "needs_assets" | "outbound" | "inbound" | "transfer"
   >("all");
 
   const all = useMemo(() => [...(active.data ?? []), ...(recent.data ?? [])], [active.data, recent.data]);
+  const latestIssue = useMemo(() => {
+    const byTrip = new Map<string, EventRecord>();
+    for (const event of issues.data ?? []) {
+      if (event.tripId && !byTrip.has(event.tripId)) byTrip.set(event.tripId, event);
+    }
+    return byTrip;
+  }, [issues.data]);
+
+  useEffect(() => {
+    if (!focus?.query || appliedFocus.current === focus.key) return;
+    setFilter(focus.query);
+    const trip = all.find((t) => t.code === focus.query);
+    if (trip || (active.data && recent.data)) {
+      appliedFocus.current = focus.key;
+      if (trip) setOpenId(trip.id);
+    }
+  }, [focus?.key, focus?.query, all, active.data, recent.data]);
 
   const delayedCount = useMemo(() => all.filter((t) => t.delayed).length, [all]);
   const needsAssetsCount = useMemo(() => all.filter((t) => !t.vehicleId || !t.driverId).length, [all]);
@@ -206,6 +226,8 @@ export function DispatchView({ refs }: { refs: Refs }) {
                 {trips.length ? (
                   trips.map((t) => {
                     const hasMissingAssets = !t.vehicleId || !t.driverId;
+                    const reportEvent = latestIssue.get(t.id);
+                    const report = reportEvent ? issueReport(reportEvent) : null;
                     return (
                       <div key={t.id} className="pipeline-card-wrapper">
                         <div
@@ -237,6 +259,13 @@ export function DispatchView({ refs }: { refs: Refs }) {
                               </span>
                             </div>
                           </div>
+
+                          {report ? (
+                            <div className={`trip-report is-${report.tone}`}>
+                              <span className="trip-report-kind">{humanize(report.kind)}</span>
+                              <span className="trip-report-text">{report.text}</span>
+                            </div>
+                          ) : null}
 
                           <div className={`trip-route-row route-${col.status} kind-${t.kind}`}>
                             <span className="site-tag origin" title={refs.siteName(t.originSiteId)}>

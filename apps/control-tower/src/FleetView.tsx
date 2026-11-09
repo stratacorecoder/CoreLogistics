@@ -31,13 +31,28 @@ import {
   useApi,
   type Refs,
 } from "@corelogistics/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Sub = "vehicles" | "drivers" | "maintenance" | "devices";
 
-export function FleetView({ refs }: { refs: Refs }) {
+function tabForFocus(focus: { query: string } | null | undefined, refs: Refs): Sub | null {
+  const q = focus?.query.trim().toLowerCase();
+  if (!q) return null;
+  if (q === "maintenance" || q === "devices") return q;
+  if (refs.vehicles?.some((item) => item.code.toLowerCase() === q || item.plate.toLowerCase() === q)) return "vehicles";
+  if (refs.drivers?.some((item) => item.code.toLowerCase() === q || item.name.toLowerCase() === q)) return "drivers";
+  return null;
+}
+
+export function FleetView({ refs, focus }: { refs: Refs; focus?: { query: string; key: number } | null }) {
   const [sub, setSub] = useState<Sub>("vehicles");
+  const [appliedKey, setAppliedKey] = useState<number | null>(null);
   const openMaint = useApi<MaintenanceRecord[]>("/maintenance?open=true");
+  const hinted = tabForFocus(focus, refs);
+  if (focus?.key && hinted && appliedKey !== focus.key) {
+    setAppliedKey(focus.key);
+    if (sub !== hinted) setSub(hinted);
+  }
   return (
     <div className="page stack">
       <Tabs<Sub>
@@ -50,16 +65,26 @@ export function FleetView({ refs }: { refs: Refs }) {
           { id: "devices", label: "Devices & automation" },
         ]}
       />
-      {sub === "vehicles" ? <Vehicles refs={refs} /> : null}
-      {sub === "drivers" ? <Drivers refs={refs} /> : null}
+      {sub === "vehicles" ? <Vehicles refs={refs} focus={focus} /> : null}
+      {sub === "drivers" ? <Drivers refs={refs} focus={focus} /> : null}
       {sub === "maintenance" ? <Maintenance refs={refs} /> : null}
       {sub === "devices" ? <Devices refs={refs} /> : null}
     </div>
   );
 }
 
-function Vehicles({ refs }: { refs: Refs }) {
+function Vehicles({ refs, focus }: { refs: Refs; focus?: { query: string; key: number } | null }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const appliedFocus = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focus?.query || appliedFocus.current === focus.key) return;
+    const q = focus.query.toLowerCase();
+    const vehicle = refs.vehicles?.find((item) => item.code.toLowerCase() === q || item.plate.toLowerCase() === q);
+    if (!vehicle) return;
+    appliedFocus.current = focus.key;
+    setSelected(vehicle.id);
+    document.getElementById(`vehicle-${vehicle.id}`)?.scrollIntoView({ block: "nearest" });
+  }, [focus?.key, focus?.query, refs.vehicles]);
   const [adding, setAdding] = useState(false);
   const vehicle = refs.vehicles?.find((v) => v.id === selected) ?? null;
   return (
@@ -80,7 +105,7 @@ function Vehicles({ refs }: { refs: Refs }) {
           </thead>
           <tbody>
             {(refs.vehicles ?? []).map((v) => (
-              <tr key={v.id} className={`is-clickable${v.id === selected ? " is-selected" : ""}`} onClick={() => setSelected(v.id)}>
+              <tr id={`vehicle-${v.id}`} key={v.id} className={`is-clickable${v.id === selected ? " is-selected" : ""}`} onClick={() => setSelected(v.id)}>
                 <td className="strong">{v.code}</td>
                 <td className="mono">{v.plate}</td>
                 <td>{humanize(v.kind)}</td>
@@ -209,12 +234,18 @@ function AddVehicle({ refs, onClose }: { refs: Refs; onClose: () => void }) {
   );
 }
 
-function Drivers({ refs }: { refs: Refs }) {
+function Drivers({ refs, focus }: { refs: Refs; focus?: { query: string; key: number } | null }) {
   const { busy, run } = useAction();
   const trips = useApi<{ driverId: string | null; code: string; status: string }[]>("/trips?active=true&limit=300");
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ code: "", name: "", phone: "", licenseClass: "C", licenseExpiry: "2028-12-31" });
   const soon = Date.now() + 90 * 86_400_000;
+  useEffect(() => {
+    if (!focus?.query) return;
+    const q = focus.query.toLowerCase();
+    const driver = refs.drivers?.find((item) => item.code.toLowerCase() === q || item.name.toLowerCase() === q);
+    if (driver) document.getElementById(`driver-${driver.id}`)?.scrollIntoView({ block: "nearest" });
+  }, [focus?.key, focus?.query, refs.drivers]);
   return (
     <Panel title="Drivers" actions={<button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>Add driver</button>}>
       <table className="table">
@@ -233,8 +264,10 @@ function Drivers({ refs }: { refs: Refs }) {
           {(refs.drivers ?? []).map((d: Driver) => {
             const trip = trips.data?.find((t) => t.driverId === d.id && t.status !== "planned");
             const expiring = Date.parse(d.licenseExpiry) < soon;
+            const named = focus?.query.toLowerCase();
+            const highlighted = named === d.code.toLowerCase() || named === d.name.toLowerCase();
             return (
-              <tr key={d.id}>
+              <tr id={`driver-${d.id}`} key={d.id} className={highlighted ? "is-selected" : undefined}>
                 <td className="strong">{d.code}</td>
                 <td>{d.name}</td>
                 <td className="muted">{d.phone}</td>

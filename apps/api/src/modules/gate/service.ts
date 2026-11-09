@@ -13,7 +13,7 @@ import {
 } from "@corelogistics/contracts";
 import type { z } from "zod";
 import { many, newId, nextCode, one, run, tx, type Row } from "../../db.js";
-import { badRequest, conflict, must, notFound } from "../../errors.js";
+import { badRequest, conflict, HttpError, must, notFound } from "../../errors.js";
 import { at, emit, type Ctx } from "../../events.js";
 import { findVehicleByPlate, getVehicle, refreshVehicleStatus } from "../fleet/service.js";
 import { getLocation, getSite } from "../sites/service.js";
@@ -109,6 +109,66 @@ export function listAppointments(siteId?: string, status?: string): DockAppointm
   ).map(toAppointment);
 }
 
+export interface AppointmentOverlap {
+  id: string;
+  code: string;
+  plate: string;
+  windowStart: string;
+  windowEnd: string;
+}
+
+function parsedInstant(value: string): number | null {
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** UTC form with milliseconds, so stored windows sort and display as the same instant. */
+function canonicalTimestamp(value: string): string {
+  const ms = parsedInstant(value);
+  if (ms === null) throw badRequest("Appointment window timestamps are invalid");
+  return new Date(ms).toISOString();
+}
+
+/**
+ * Half-open overlap on instants, not ISO text. Touching at an endpoint is free.
+ * A timestamp that cannot be parsed still counts as overlap so a bad row cannot hide a booking.
+ */
+function intervalsOverlap(startA: string, endA: string, startB: string, endB: string): boolean {
+  const a0 = parsedInstant(startA);
+  const a1 = parsedInstant(endA);
+  const b0 = parsedInstant(startB);
+  const b1 = parsedInstant(endB);
+  if (a0 === null || a1 === null || b0 === null || b1 === null) return true;
+  return a0 < b1 && a1 > b0;
+}
+
+/** Scheduled or checked-in booking whose window overlaps the candidate interval. */
+export function findAppointmentOverlap(
+  siteId: string,
+  locationId: string,
+  windowStart: string,
+  windowEnd: string,
+  excludeId?: string,
+): AppointmentOverlap | undefined {
+  const rows = many<Row>(
+    `SELECT id, code, plate, window_start, window_end FROM dock_appointments
+     WHERE site_id = ? AND location_id = ? AND status IN ('scheduled', 'checked_in')
+       AND (? IS NULL OR id != ?)`,
+    [siteId, locationId, excludeId ?? null, excludeId ?? null],
+  );
+  const row = rows.find((candidate) =>
+    intervalsOverlap(candidate.window_start, candidate.window_end, windowStart, windowEnd),
+  );
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    code: row.code,
+    plate: row.plate,
+    windowStart: row.window_start,
+    windowEnd: row.window_end,
+  };
+}
+
 export function createAppointment(input: z.output<typeof DockAppointmentInputSchema>, ctx: Ctx): DockAppointment {
   return tx(() => {
     const site = getSite(input.siteId);
@@ -119,16 +179,10 @@ export function createAppointment(input: z.output<typeof DockAppointmentInputSch
         throw badRequest("Location is not a dock door at this site");
       }
       locationCode = loc.code;
-      const conflicting = one<Row>(
-        `SELECT id, code, plate, window_start, window_end FROM dock_appointments
-         WHERE site_id = ? AND location_id = ? AND status IN ('scheduled', 'checked_in')
-           AND window_start < ? AND window_end > ?
-         LIMIT 1`,
-        [site.id, input.locationId, input.windowEnd, input.windowStart],
-      );
+      const conflicting = findAppointmentOverlap(site.id, input.locationId, input.windowStart, input.windowEnd);
       if (conflicting) {
         throw conflict(
-          `Dock door ${locationCode} is already booked by appointment ${conflicting.code} (${conflicting.plate}) for window ${conflicting.window_start} - ${conflicting.window_end}`,
+          `Dock door ${locationCode} is already booked by appointment ${conflicting.code} (${conflicting.plate}) for window ${conflicting.windowStart} - ${conflicting.windowEnd}`,
         );
       }
     }
@@ -137,6 +191,8 @@ export function createAppointment(input: z.output<typeof DockAppointmentInputSch
     const when = at(ctx);
     const vehicle = findVehicleByPlate(input.plate);
     const plate = vehicle ? vehicle.plate : input.plate.trim().toUpperCase();
+    const windowStart = canonicalTimestamp(input.windowStart);
+    const windowEnd = canonicalTimestamp(input.windowEnd);
     run(
       `INSERT INTO dock_appointments (id, code, site_id, trip_id, plate, carrier, purpose, location_id, window_start, window_end, status, notes, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
@@ -149,8 +205,8 @@ export function createAppointment(input: z.output<typeof DockAppointmentInputSch
         input.carrier ?? "",
         input.purpose,
         input.locationId ?? null,
-        input.windowStart,
-        input.windowEnd,
+        windowStart,
+        windowEnd,
         input.notes ?? "",
         when,
       ],
@@ -184,6 +240,262 @@ export function cancelAppointment(id: string, ctx: Ctx): DockAppointment {
       message: `Appointment ${appt.code} for ${appt.plate} was cancelled`,
     });
     return updated;
+  });
+}
+
+/** The trip's live booking at a site, preferring a still-scheduled window over one already checked in. */
+export function findTripAppointment(siteId: string, tripId: string): DockAppointment | null {
+  const row = one(
+    `${APPOINTMENT_SELECT}
+     WHERE da.site_id = ? AND da.trip_id = ? AND da.status IN ('scheduled', 'checked_in')
+     ORDER BY CASE da.status WHEN 'scheduled' THEN 0 ELSE 1 END, da.window_start ASC
+     LIMIT 1`,
+    [siteId, tripId],
+  );
+  return row ? toAppointment(row) : null;
+}
+
+export interface AppointmentExpectation {
+  tripId: string | null;
+  siteId: string;
+  locationId: string | null;
+}
+
+/**
+ * Moves a scheduled appointment. The caller supplies the trip, site, and dock the
+ * recommendation was built from; any mismatch, overlap, or unsafe window aborts the transaction.
+ */
+export function rescheduleAppointment(
+  id: string,
+  windowStart: string,
+  windowEnd: string,
+  expected: AppointmentExpectation,
+  ctx: Ctx,
+): DockAppointment {
+  return tx(() => {
+    const appt = getAppointment(id);
+    if (appt.status !== "scheduled") {
+      throw conflict(`Appointment ${appt.code} is ${appt.status}; only scheduled appointments can be rescheduled`);
+    }
+    if ((appt.tripId ?? null) !== (expected.tripId ?? null)) {
+      throw conflict("Appointment is no longer for the expected trip");
+    }
+    if (appt.siteId !== expected.siteId) {
+      throw conflict("Appointment is no longer at the expected site");
+    }
+    if ((appt.locationId ?? null) !== (expected.locationId ?? null)) {
+      throw conflict("Appointment is no longer at the expected dock");
+    }
+    const canonicalStart = canonicalTimestamp(windowStart);
+    const canonicalEnd = canonicalTimestamp(windowEnd);
+    const startMs = Date.parse(canonicalStart);
+    const endMs = Date.parse(canonicalEnd);
+    const origStart = Date.parse(appt.windowStart);
+    const origEnd = Date.parse(appt.windowEnd);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !Number.isFinite(origStart) || !Number.isFinite(origEnd)) {
+      throw badRequest("Appointment window timestamps are invalid");
+    }
+    if (endMs <= startMs) throw badRequest("Window end must be after window start");
+    if (endMs - startMs !== origEnd - origStart) {
+      throw badRequest("Reschedule must keep the original appointment duration");
+    }
+    if (startMs < origStart) throw conflict("Reschedule cannot move the window earlier");
+    if (startMs <= Date.now()) throw conflict("Reschedule requires a future window");
+    if (appt.locationId) {
+      const conflicting = findAppointmentOverlap(appt.siteId, appt.locationId, canonicalStart, canonicalEnd, appt.id);
+      if (conflicting) {
+        throw conflict(
+          `Dock door ${appt.locationCode ?? appt.locationId} is already booked by appointment ${conflicting.code} (${conflicting.plate}) for window ${conflicting.windowStart} - ${conflicting.windowEnd}`,
+        );
+      }
+    }
+    const before = {
+      windowStart: appt.windowStart,
+      windowEnd: appt.windowEnd,
+      status: appt.status,
+      locationId: appt.locationId,
+      tripId: appt.tripId,
+      siteId: appt.siteId,
+    };
+    run(`UPDATE dock_appointments SET window_start = ?, window_end = ? WHERE id = ?`, [canonicalStart, canonicalEnd, id]);
+    const updated = getAppointment(id);
+    emit(ctx, {
+      type: "appointment.rescheduled",
+      siteId: appt.siteId,
+      tripId: appt.tripId,
+      locationId: appt.locationId,
+      entityId: id,
+      message: `Appointment ${appt.code} for ${appt.plate} moved from ${before.windowStart} – ${before.windowEnd} to ${updated.windowStart} – ${updated.windowEnd}`,
+      payload: {
+        code: appt.code,
+        actor: ctx.actor,
+        before,
+        after: {
+          windowStart: updated.windowStart,
+          windowEnd: updated.windowEnd,
+          status: updated.status,
+          locationId: updated.locationId,
+          tripId: updated.tripId,
+          siteId: updated.siteId,
+        },
+      },
+    });
+    return updated;
+  });
+}
+
+export interface DockSwapAssessment {
+  eligible: boolean;
+  reason: string;
+  visitId: string;
+  siteId: string | null;
+  status: string | null;
+  plate: string | null;
+  locationId: string;
+  dockCode: string | null;
+  locationActive: boolean;
+  dockFree: boolean;
+  reservationClear: boolean;
+}
+
+function ineligibleSwap(
+  visitId: string,
+  locationId: string,
+  reason: string,
+  extra: Partial<DockSwapAssessment> = {},
+): DockSwapAssessment {
+  return {
+    eligible: false,
+    reason,
+    visitId,
+    siteId: null,
+    status: null,
+    plate: null,
+    locationId,
+    dockCode: null,
+    locationActive: false,
+    dockFree: false,
+    reservationClear: false,
+    ...extra,
+  };
+}
+
+/** A yard visit can take this dock only when the visit, the door, and its reservations all check out. */
+export function assessDockSwap(
+  visitId: string,
+  locationId: string,
+  opts?: { ignoreAppointmentId?: string; now?: string },
+): DockSwapAssessment {
+  const now = opts?.now ?? new Date().toISOString();
+  let visit: GateVisit;
+  try {
+    visit = getVisit(visitId);
+  } catch (err) {
+    if (err instanceof HttpError && err.statusCode === 404) {
+      return ineligibleSwap(visitId, locationId, "Yard visit cannot be established");
+    }
+    throw err;
+  }
+  if (visit.checkOutAt || visit.status !== "in_yard") {
+    return ineligibleSwap(visitId, locationId, "Yard visit is not eligible for a dock swap", {
+      siteId: visit.siteId,
+      status: visit.status,
+      plate: visit.plate,
+    });
+  }
+  let loc;
+  try {
+    loc = getLocation(locationId);
+  } catch (err) {
+    if (err instanceof HttpError && err.statusCode === 404) {
+      return ineligibleSwap(visitId, locationId, "Dock cannot be established", {
+        siteId: visit.siteId,
+        status: visit.status,
+        plate: visit.plate,
+      });
+    }
+    throw err;
+  }
+  const base = {
+    siteId: visit.siteId,
+    status: visit.status,
+    plate: visit.plate,
+    dockCode: loc.code,
+    locationActive: loc.active,
+  };
+  if (loc.siteId !== visit.siteId || loc.kind !== "dock_door" || !loc.active) {
+    return ineligibleSwap(visitId, locationId, "Dock is not an active door at the visit site", base);
+  }
+  const occupied = Boolean(
+    one("SELECT 1 FROM dock_assignments WHERE location_id = ? AND released_at IS NULL", [loc.id]),
+  );
+  if (occupied) {
+    return ineligibleSwap(visitId, locationId, `${loc.code} is occupied`, { ...base, locationActive: true });
+  }
+  const ignore = opts?.ignoreAppointmentId ?? null;
+  const nowMs = parsedInstant(now) ?? Date.now();
+  const reservations = many<{ id: string; code: string; window_end: string }>(
+    `SELECT id, code, window_end FROM dock_appointments
+     WHERE location_id = ? AND status IN ('scheduled', 'checked_in')
+       AND (? IS NULL OR id != ?)`,
+    [loc.id, ignore, ignore],
+  );
+  const reservation = reservations.find((row) => {
+    const end = parsedInstant(row.window_end);
+    return end === null || end > nowMs;
+  });
+  if (reservation) {
+    return ineligibleSwap(visitId, locationId, `Dock is reserved by appointment ${reservation.code}`, {
+      ...base,
+      locationActive: true,
+      dockFree: true,
+    });
+  }
+  return {
+    ...base,
+    eligible: true,
+    reason: "Yard visit is eligible and the dock is active, free, and unreserved",
+    visitId,
+    locationId: loc.id,
+    locationActive: true,
+    dockFree: true,
+    reservationClear: true,
+  };
+}
+
+/** First waiting visit that can take the preferred dock, or any free dock when no dock is specified. */
+export function findEligibleDockSwap(
+  siteId: string,
+  opts?: { locationId?: string; ignoreAppointmentId?: string; now?: string },
+): DockSwapAssessment | null {
+  const visits = many<{ id: string }>(
+    `SELECT id FROM gate_visits
+     WHERE site_id = ? AND status = 'in_yard' AND check_out_at IS NULL
+     ORDER BY check_in_at ASC`,
+    [siteId],
+  );
+  const locationIds = opts?.locationId
+    ? [opts.locationId]
+    : freeLocations(siteId, "dock_door").map((row) => String(row.id));
+  for (const visit of visits) {
+    for (const locationId of locationIds) {
+      const assessment = assessDockSwap(visit.id, locationId, opts);
+      if (assessment.eligible) return assessment;
+    }
+  }
+  return null;
+}
+
+export function executeDockSwap(
+  visitId: string,
+  locationId: string,
+  ctx: Ctx,
+  opts?: { ignoreAppointmentId?: string },
+): GateVisit {
+  return tx(() => {
+    const assessment = assessDockSwap(visitId, locationId, opts);
+    if (!assessment.eligible) throw conflict(assessment.reason);
+    return assignDock(visitId, { locationId }, ctx);
   });
 }
 
@@ -348,11 +660,12 @@ export function checkOut(input: z.output<typeof CheckOutInputSchema>, ctx: Ctx):
     );
     run("UPDATE vehicles SET current_site_id = NULL WHERE id = ?", [visit.vehicleId]);
 
-    // An inbound trip ends at the gate; a truck leaving with a dispatched outbound trip departs on it.
+    // An inbound trip ends at the gate. A dispatched outbound trip leaves with the truck.
+    // A planned trip stays planned so the yard can still expect it until Control Tower dispatches it.
     if (visit.tripId) {
       const t = getTrip(visit.tripId);
       if (t.destinationSiteId === visit.siteId && t.status === "arrived") completeTrip(t.id, ctx);
-      if (t.originSiteId === visit.siteId && ["planned", "dispatched"].includes(t.status) && t.driverId) {
+      if (t.originSiteId === visit.siteId && t.status === "dispatched" && t.driverId) {
         departTrip(t.id, ctx);
       }
     }
@@ -438,6 +751,13 @@ export function assignDock(visitId: string, input: z.output<typeof AssignDockInp
     if (!freeLocations(visit.siteId, "dock_door").some((r) => r.id === loc.id)) throw conflict(`${loc.code} is occupied`);
 
     const when = at(ctx);
+    const before = {
+      status: visit.status,
+      yardLocationId: visit.yardLocationId,
+      dock: visit.dock
+        ? { assignmentId: visit.dock.assignmentId, locationId: visit.dock.locationId, code: visit.dock.code }
+        : null,
+    };
     if (visit.dock) run("UPDATE dock_assignments SET released_at = ? WHERE id = ?", [when, visit.dock.assignmentId]);
     const purpose = input.purpose ?? defaultPurpose(visit);
     run(
@@ -454,7 +774,16 @@ export function assignDock(visitId: string, input: z.output<typeof AssignDockInp
       locationId: loc.id,
       entityId: visit.id,
       message: `${visit.plate} to ${loc.code} to ${purpose}`,
-      payload: { purpose },
+      payload: {
+        purpose,
+        actor: ctx.actor,
+        before,
+        after: {
+          status: "at_dock",
+          yardLocationId: null,
+          dock: { locationId: loc.id, code: loc.code },
+        },
+      },
     });
     if (purpose === "unload" && getSite(visit.siteId).kind === "warehouse") ensureReceiptForVisit(visit.id, ctx);
     return getVisit(visit.id);

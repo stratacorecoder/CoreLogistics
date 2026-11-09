@@ -4,18 +4,20 @@ import {
   ShipmentInputSchema,
   type HandlingUnit,
   type Order,
+  type PickConfirmInput,
   type PickTask,
   type ReleaseResult,
   type Shipment,
 } from "@corelogistics/contracts";
 import type { z } from "zod";
 import { many, newId, nextCode, one, placeholders, run, splitList, tx, type Row } from "../../db.js";
-import { badRequest, conflict, must } from "../../errors.js";
+import { badRequest, conflict, forbidden, must } from "../../errors.js";
 import { at, emit, type Ctx } from "../../events.js";
 import { getVehicle } from "../fleet/service.js";
 import { getLocation, getSite } from "../sites/service.js";
 import { departTrip, dispatchTrip, getTrip } from "../trips/service.js";
-import { adjustInventory, getHu, getSku, insertHu, listHus } from "../warehouse/service.js";
+import { confirmationHash, confirmOnce, normCode } from "../warehouse/confirm.js";
+import { adjustInventory, findHuByCode, getHu, getSku, insertHu, listHus } from "../warehouse/service.js";
 
 // Orders ---------------------------------------------------------------------
 
@@ -205,48 +207,95 @@ export function releaseOrder(id: string, ctx: Ctx): ReleaseResult {
   });
 }
 
-export function confirmPick(taskId: string, ctx: Ctx): { task: PickTask; hu: HandlingUnit; order: Order } {
-  return tx(() => {
-    const task = getPick(taskId);
-    if (task.status !== "open") throw badRequest(`Task is ${task.status}`);
-    const source = getHu(task.fromHuId);
-    if (source.status !== "stored" || source.qty < task.qty) throw conflict(`${source.code} no longer holds ${task.qty} units`);
-    const when = at(ctx);
-    const remaining = source.qty - task.qty;
-    run(
-      `UPDATE handling_units SET qty = ?, status = ?, location_id = ?, updated_at = ? WHERE id = ?`,
-      [remaining, remaining === 0 ? "consumed" : "stored", remaining === 0 ? null : source.locationId, when, source.id],
-    );
-    adjustInventory(task.siteId, task.fromLocationId, task.skuId, -task.qty);
-    const hu = insertHu(ctx, {
-      kind: remaining === 0 && task.qty === source.qty ? source.kind : "tote",
-      siteId: task.siteId,
-      skuId: task.skuId,
-      qty: task.qty,
-      status: "picked",
-      orderId: task.orderId,
-      lotNumber: source.lotNumber,
-      expiryDate: source.expiryDate,
-    });
-    run("UPDATE pick_tasks SET status = 'done', to_hu_id = ?, completed_at = ?, actor = ? WHERE id = ?", [
-      hu.id,
-      when,
-      ctx.actor,
-      task.id,
-    ]);
-    run("UPDATE order_lines SET picked_qty = picked_qty + ? WHERE id = ?", [task.qty, task.orderLineId]);
-    const open = one("SELECT 1 FROM pick_tasks WHERE order_id = ? AND status = 'open'", [task.orderId]);
-    if (!open) run("UPDATE orders SET status = 'picked' WHERE id = ? AND status = 'picking'", [task.orderId]);
-    emit(ctx, {
-      type: "pick.done",
-      siteId: task.siteId,
-      huId: hu.id,
-      locationId: task.fromLocationId,
-      entityId: task.orderId,
-      message: `Picked ${task.qty} × ${task.skuCode} from ${task.fromLocationCode} into ${hu.code} for ${task.orderCode}`,
-    });
-    return { task: getPick(task.id), hu, order: getOrder(task.orderId) };
-  });
+function matchPickBarcode(task: PickTask, barcode: string) {
+  const code = normCode(barcode);
+  if (code === normCode(task.fromHuCode)) return;
+  try {
+    const other = findHuByCode(code);
+    if (other.siteId !== task.siteId) throw badRequest(`Wrong label: unit ${code} belongs to another site`);
+  } catch (err) {
+    if (!(err instanceof Error) || !/not found/i.test(err.message)) throw err;
+  }
+  throw badRequest(`Wrong label: expected pallet ${task.fromHuCode}`);
+}
+
+export function confirmPick(
+  taskId: string,
+  input: PickConfirmInput,
+  ctx: Ctx,
+  auth?: { tower?: boolean },
+): { task: PickTask; hu: HandlingUnit; order: Order } {
+  if (input.mode === "override" && !auth?.tower) {
+    throw forbidden("Control Tower planner role required to bypass barcode matching");
+  }
+  const hash = confirmationHash([
+    taskId,
+    input.mode,
+    input.entryMethod,
+    normCode(input.huBarcode),
+    input.mode === "override" ? input.reason : "",
+  ]);
+  return confirmOnce("pick", taskId, input.requestId, hash, () =>
+    tx(() => {
+      const task = getPick(taskId);
+      if (task.status !== "open") throw conflict(`Stale task: task is ${task.status}`);
+      if (input.mode === "match") matchPickBarcode(task, input.huBarcode);
+      const source = getHu(task.fromHuId);
+      if (source.siteId !== task.siteId) throw conflict(`Stale task: ${source.code} is not at this site`);
+      if (source.locationId !== task.fromLocationId) {
+        throw conflict(`Stale task: ${source.code} is no longer at ${task.fromLocationCode}`);
+      }
+      if (source.status !== "stored" || source.qty < task.qty) {
+        throw conflict(`Stale task: ${source.code} no longer holds ${task.qty} units`);
+      }
+      const when = at(ctx);
+      const remaining = source.qty - task.qty;
+      run(
+        `UPDATE handling_units SET qty = ?, status = ?, location_id = ?, updated_at = ? WHERE id = ?`,
+        [remaining, remaining === 0 ? "consumed" : "stored", remaining === 0 ? null : source.locationId, when, source.id],
+      );
+      adjustInventory(task.siteId, task.fromLocationId, task.skuId, -task.qty);
+      const hu = insertHu(ctx, {
+        kind: remaining === 0 && task.qty === source.qty ? source.kind : "tote",
+        siteId: task.siteId,
+        skuId: task.skuId,
+        qty: task.qty,
+        status: "picked",
+        orderId: task.orderId,
+        lotNumber: source.lotNumber,
+        expiryDate: source.expiryDate,
+      });
+      run("UPDATE pick_tasks SET status = 'done', to_hu_id = ?, completed_at = ?, actor = ? WHERE id = ?", [
+        hu.id,
+        when,
+        ctx.actor,
+        task.id,
+      ]);
+      run("UPDATE order_lines SET picked_qty = picked_qty + ? WHERE id = ?", [task.qty, task.orderLineId]);
+      const open = one("SELECT 1 FROM pick_tasks WHERE order_id = ? AND status = 'open'", [task.orderId]);
+      if (!open) run("UPDATE orders SET status = 'picked' WHERE id = ? AND status = 'picking'", [task.orderId]);
+      emit(ctx, {
+        type: "pick.done",
+        siteId: task.siteId,
+        huId: hu.id,
+        locationId: task.fromLocationId,
+        entityId: task.orderId,
+        message:
+          input.mode === "override"
+            ? `Tower review picked ${task.qty} × ${task.skuCode} for ${task.orderCode}: ${input.reason}`
+            : `Picked ${task.qty} × ${task.skuCode} from ${task.fromLocationCode} into ${hu.code} for ${task.orderCode}`,
+        payload: {
+          requestId: input.requestId,
+          entryMethod: input.entryMethod,
+          huBarcode: normCode(input.huBarcode),
+          mode: input.mode,
+          review: input.mode === "override" ? "tower_override" : null,
+          reason: input.mode === "override" ? input.reason : null,
+        },
+      });
+      return { task: getPick(task.id), hu, order: getOrder(task.orderId) };
+    }),
+  );
 }
 
 function freeStaging(siteId: string): Row | undefined {

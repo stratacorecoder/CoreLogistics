@@ -13,6 +13,7 @@ import {
   ErrorNote,
   fmtDateTime,
   fromNow,
+  issueReport,
   MapLegend,
   Panel,
   SiteMap,
@@ -23,7 +24,7 @@ import {
   type MapCell,
   type Refs,
 } from "@corelogistics/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function formatEventTime(iso: string): string {
   const d = new Date(iso);
@@ -38,14 +39,40 @@ function formatEventTime(iso: string): string {
   return `${monthStr} ${timeStr}`;
 }
 
-export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
+export function LiveView({
+  siteId,
+  refs,
+  focus,
+  onOpenTrip,
+}: {
+  siteId: string;
+  refs: Refs;
+  focus?: { query: string; key: number } | null;
+  onOpenTrip?: (code: string) => void;
+}) {
   const now = useNow(30_000);
   const board = useApi<SiteBoard>(`/sites/${siteId}/board`);
   const stats = useApi<AnalyticsSummary>(`/analytics/summary${qs({ siteId, days: 1 })}`);
   const visits = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, open: "true" })}`);
   const trips = useApi<Trip[]>(`/trips${qs({ siteId, active: "true" })}`);
   const events = useApi<EventRecord[]>(`/events${qs({ siteId, limit: 40 })}`);
+  const reports = useApi<EventRecord[]>("/events?type=trip.issue&limit=6");
   const [selected, setSelected] = useState<{ cell: MapCell; locs: LocationStatus[] } | null>(null);
+  const appliedFocus = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!focus?.query || !board.data || appliedFocus.current === focus.key) return;
+    appliedFocus.current = focus.key;
+    const needle = focus.query.toLowerCase();
+    const loc =
+      board.data.locations.find((item) => item.code.toLowerCase() === needle) ??
+      board.data.locations.find((item) => item.refs.some((ref) => ref.toLowerCase() === needle));
+    if (!loc) return;
+    const cell = board.data.layout.cells.find((item) => item.x === loc.x && item.y === loc.y);
+    if (!cell) return;
+    const locs = board.data.locations.filter((item) => item.x === loc.x && item.y === loc.y);
+    setSelected({ cell, locs });
+  }, [focus?.key, focus?.query, board.data]);
 
   const s = stats.data;
   const layout = board.data?.layout;
@@ -168,6 +195,32 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
       </Panel>
 
       <div className="stack live-rail">
+        {reports.data?.length ? (
+          <Panel title="Driver reports">
+            <div className="driver-report-list">
+              {reports.data.slice(0, 4).map((event) => {
+                const report = issueReport(event);
+                if (!report) return null;
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    className={`driver-report is-${report.tone}`}
+                    onClick={() => report.code && onOpenTrip?.(report.code)}
+                  >
+                    <span className="driver-report-top">
+                      <span className="driver-report-kind">{humanize(report.kind)}</span>
+                      <span className="driver-report-code">{report.code}</span>
+                      <span className="driver-report-time">{formatEventTime(event.occurredAt)}</span>
+                    </span>
+                    <span className="driver-report-text">{report.text}</span>
+                    {event.actor ? <span className="driver-report-actor">{event.actor}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
+        ) : null}
         {selected ? (
           <Panel title={`${humanize(selected.cell.kind)} ${selected.locs[0]?.code.replace(/-\d+$/, "") ?? ""}`}>
             {selectedVisit ? (
@@ -240,7 +293,7 @@ export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
           {events.data?.length ? (
             <div className="activity-timeline-list">
               {events.data.map((e) => (
-                <div key={e.id} className="activity-timeline-row">
+                <div key={e.id} className={`activity-timeline-row${e.type === "trip.issue" ? ` is-issue is-${issueReport(e)?.tone ?? "warn"}` : ""}`}>
                   <span className="activity-time">{formatEventTime(e.occurredAt)}</span>
                   <span className="activity-sep">|</span>
                   <span className="activity-msg">

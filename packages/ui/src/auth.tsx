@@ -4,6 +4,9 @@ import { api, clearSession, getSession, setActor, setSession } from "./api.js";
 
 const APP_PORTS: Record<AppRoleId, number> = { tower: 5180, gate: 5181, warehouse: 5182, driver: 5183 };
 
+/** Cleared on sign-out so the phone notice shows again at the next login. */
+export const DESK_NOTICE_KEY = "corelogistics:desk-notice";
+
 const SESSION_QUERY = "session";
 
 export const DEMO_ACCOUNTS = [
@@ -96,6 +99,7 @@ export function useAuth(home: AppRoleId) {
     }
     clearSession();
     setActor("");
+    sessionStorage.removeItem(DESK_NOTICE_KEY);
     setUser(null);
   }, []);
 

@@ -17,7 +17,8 @@
     "dev:driver": "npm run dev -w @corelogistics/driver",
     "db:reset": "npm run db:reset -w @corelogistics/api",
     "openapi": "npm run openapi -w @corelogistics/api",
-    "test": "npm run test -w @corelogistics/api",
+    "test": "npm run test -w @corelogistics/api && npm run test -w @corelogistics/ui",
+    "audit:triage": "node scripts/audit-triage.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present"
   },

@@ -2,6 +2,7 @@ import { ZONE_META, ZONES, type LayoutCell, type SiteLayout, type Zone } from "@
 import { one, run, tx } from "./db.js";
 import { upsertUser } from "./modules/auth/service.js";
 import { systemCtx, type Ctx } from "./events.js";
+import type { PickTask, PutawayTask } from "@corelogistics/contracts";
 import { createVehicle, createDriver, openMaintenance, closeMaintenance, updateDriver } from "./modules/fleet/service.js";
 import { assignDock, checkIn, checkOut, releaseDock } from "./modules/gate/service.js";
 import { createDevice } from "./modules/ingest/service.js";
@@ -27,6 +28,29 @@ import {
   receive,
   sortHu,
 } from "./modules/warehouse/service.js";
+
+function seededPick(task: PickTask, ctx: Ctx) {
+  confirmPick(
+    task.id,
+    { mode: "match", requestId: `seed-pick-${task.id}`, entryMethod: "manual", huBarcode: task.fromHuCode },
+    ctx,
+  );
+}
+
+function seededPutaway(task: PutawayTask, ctx: Ctx) {
+  if (!task.suggestedCode) return;
+  confirmPutaway(
+    task.id,
+    {
+      mode: "match",
+      requestId: `seed-put-${task.id}`,
+      entryMethod: "manual",
+      huBarcode: task.huCode,
+      binBarcode: task.suggestedCode,
+    },
+    ctx,
+  );
+}
 
 /** Fixed demo keys so the ingest endpoint can be tried straight away (see README). */
 export const DEMO_DEVICE_KEYS = {
@@ -349,7 +373,7 @@ function seed() {
       t += between(1, 4) * MIN;
       const sorted = sortHu(hu.id, at(t));
       t += between(4, 12) * MIN;
-      if (sorted.putaway?.suggestedLocationId) confirmPutaway(sorted.putaway.id, undefined, at(t));
+      if (sorted.putaway?.suggestedLocationId) seededPutaway(sorted.putaway, at(t));
     }
     closeReceipt(receipt.id, at(t + 2 * MIN));
     t += between(5, 15) * MIN;
@@ -373,7 +397,7 @@ function seed() {
     const released = releaseOrder(order.id, at(t));
     for (const task of released.tasks) {
       t += between(3, 9) * MIN;
-      confirmPick(task.id, at(t));
+      seededPick(task, at(t));
     }
     if (!released.tasks.length) return start;
     t += between(5, 15) * MIN;
@@ -519,7 +543,7 @@ function seed() {
   assignDock(v3.id, { locationId: loc(wh.id, "D02").id }, live(-38, "Gate"));
   const hu1 = receive(rcv.id, { skuId: skuByCode.get("BEV-COLA-24")!.id, qty: 60, kind: "pallet" }, live(-30));
   const s1 = sortHu(hu1.id, live(-28));
-  if (s1.putaway?.suggestedLocationId) confirmPutaway(s1.putaway.id, undefined, live(-20));
+  if (s1.putaway?.suggestedLocationId) seededPutaway(s1.putaway, live(-20));
   const hu2 = receive(rcv.id, { skuId: skuByCode.get("BEV-COLA-24")!.id, qty: 60, kind: "pallet" }, live(-18));
   sortHu(hu2.id, live(-15));
   receive(rcv.id, { skuId: skuByCode.get("APL-TV-55")!.id, qty: 6, kind: "pallet" }, live(-12));
@@ -554,7 +578,7 @@ function seed() {
     .map((s) => ({ skuId: s.id, qty: between(6, 10) }));
   const orderQC = createOrder({ siteId: wh.id, customerSiteId: cQC.id, dueAt: iso(now + 5 * HOUR), lines: qcLines }, live(-5 * 60, "Sales desk"));
   const relQC = releaseOrder(orderQC.id, live(-150));
-  relQC.tasks.forEach((task, i) => confirmPick(task.id, live(-140 + i * 6)));
+  relQC.tasks.forEach((task, i) => seededPick(task, live(-140 + i * 6)));
   if (relQC.tasks.length) stageOrder(orderQC.id, undefined, live(-95));
   const tripQC = createTrip(
     {
@@ -581,7 +605,7 @@ function seed() {
   if (mktLines.length) {
     const orderMKT = createOrder({ siteId: wh.id, customerSiteId: cMKT.id, dueAt: iso(now + 8 * HOUR), lines: mktLines }, live(-3 * 60, "Sales desk"));
     const rel = releaseOrder(orderMKT.id, live(-40));
-    if (rel.tasks[0]) confirmPick(rel.tasks[0].id, live(-30));
+    if (rel.tasks[0]) seededPick(rel.tasks[0], live(-30));
   }
   const pamLines = stockFor(["BEV-COLA-24", "SNK-NUTS-20", "GR-SUGAR-20", "HH-DISH-12"]).slice(0, 2);
   if (pamLines.length) {

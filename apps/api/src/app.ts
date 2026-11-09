@@ -12,7 +12,7 @@ import { sessionUser, tokenOf } from "./modules/auth/service.js";
 import analyticsRoutes from "./modules/analytics/routes.js";
 import authRoutes from "./modules/auth/routes.js";
 import { copilotRoutes } from "./modules/copilot/routes.js";
-import { initCopilot } from "./modules/copilot/service.js";
+import { getCopilotMonitoring, initCopilot } from "./modules/copilot/worker.js";
 import fleetRoutes from "./modules/fleet/routes.js";
 import gateRoutes from "./modules/gate/routes.js";
 import ingestRoutes from "./modules/ingest/routes.js";
@@ -91,7 +91,15 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
     return reply.code(500).send({ error: err.message || "Internal error" });
   });
 
-  app.get("/health", { schema: { hide: true } }, async () => ({ ok: true }));
+  app.get("/health", { schema: { hide: true } }, async () => {
+    const monitoring = getCopilotMonitoring();
+    return {
+      ok: true,
+      heartbeatAt: monitoring.heartbeatAt,
+      backlog: monitoring.backlog,
+      failedJobs: monitoring.failedJobs,
+    };
+  });
 
   app.addHook("onRequest", async (req) => {
     if (req.method === "OPTIONS") return;
@@ -134,6 +142,8 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
       (path.startsWith("/sites/") && path.endsWith("/layout") && req.method === "PUT") ||
       (path === "/sites" && req.method === "POST") ||
       (path === "/copilot/config" && req.method === "POST") ||
+      (path === "/copilot/ask" && req.method === "POST") ||
+      (path.startsWith("/copilot/jobs/") && path.endsWith("/retry") && req.method === "POST") ||
       (path.startsWith("/copilot/recommendations/") &&
         (path.endsWith("/apply") || path.endsWith("/dismiss")) &&
         req.method === "POST")
@@ -156,7 +166,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(copilotRoutes);
   await app.register(streamRoutes);
 
-  initCopilot();
+  initCopilot(app);
 
   return app;
 }

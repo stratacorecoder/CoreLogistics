@@ -378,4 +378,11 @@
   .wh-form-grid-bottom {
     grid-template-columns: 1fr;
   }
+  .wh-kpi-strip { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 840px), (max-height: 500px) and (max-width: 960px) {
+  .big-target .code { font-size: clamp(22px, 8vw, 38px); }
+}
+@media (max-width: 520px) {
+  .wh-kpi-strip { grid-template-columns: 1fr; }
 }

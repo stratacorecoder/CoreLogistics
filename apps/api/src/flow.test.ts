@@ -477,32 +477,34 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       });
 
       // Putaway to suggested bins
-      const p1 = one("SELECT id FROM putaway_tasks WHERE hu_id = ?", [huEarlyId])!;
-      const r1 = await app.inject({
-        method: "POST",
-        url: `/warehouse/putaway/${p1.id}/confirm`,
-        headers: { "x-session": warehouseToken },
-        payload: {},
-      });
-      assert.equal(r1.statusCode, 200);
-
-      const p2 = one("SELECT id FROM putaway_tasks WHERE hu_id = ?", [huLateId])!;
-      const r2 = await app.inject({
-        method: "POST",
-        url: `/warehouse/putaway/${p2.id}/confirm`,
-        headers: { "x-session": warehouseToken },
-        payload: {},
-      });
-      assert.equal(r2.statusCode, 200);
-
-      const p3 = one("SELECT id FROM putaway_tasks WHERE hu_id = ?", [huExpiredId])!;
-      const r3 = await app.inject({
-        method: "POST",
-        url: `/warehouse/putaway/${p3.id}/confirm`,
-        headers: { "x-session": warehouseToken },
-        payload: {},
-      });
-      assert.equal(r3.statusCode, 200);
+      const confirmStored = async (huId: string) => {
+        const task = one<{ id: string; hu: string; bin: string }>(
+          `SELECT p.id, h.code AS hu, l.code AS bin
+           FROM putaway_tasks p
+           JOIN handling_units h ON h.id = p.hu_id
+           JOIN locations l ON l.id = p.suggested_location_id
+           WHERE p.hu_id = ?`,
+          [huId],
+        )!;
+        return app.inject({
+          method: "POST",
+          url: `/warehouse/putaway/${task.id}/confirm`,
+          headers: { "x-session": warehouseToken },
+          payload: {
+            mode: "match",
+            requestId: `flow-put-${task.id}`,
+            entryMethod: "manual",
+            huBarcode: task.hu,
+            binBarcode: task.bin,
+          },
+        });
+      };
+      const r1 = await confirmStored(huEarlyId);
+      assert.equal(r1.statusCode, 200, r1.payload);
+      const r2 = await confirmStored(huLateId);
+      assert.equal(r2.statusCode, 200, r2.payload);
+      const r3 = await confirmStored(huExpiredId);
+      assert.equal(r3.statusCode, 200, r3.payload);
     });
 
     it("allocates stock by FEFO: picks earlier expiring unit and excludes expired stock", async () => {
@@ -543,6 +545,12 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
         method: "POST",
         url: `/outbound/picks/${pickTask.id}/confirm`,
         headers: { "x-session": warehouseToken },
+        payload: {
+          mode: "match",
+          requestId: `flow-pick-${pickTask.id}`,
+          entryMethod: "keyboard",
+          huBarcode: pickTask.fromHuCode,
+        },
       });
       assert.equal(pickConfirm.statusCode, 200);
       const pickResult = JSON.parse(pickConfirm.payload);
@@ -719,17 +727,31 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
     let yardVisitId: string;
     let appointmentDockId: string;
     let recommendationId: string;
+    let recRevision: number;
 
     before(async () => {
       const wh = one("SELECT id FROM sites WHERE code = 'WH-C'")!;
       const depot = one("SELECT id FROM sites WHERE code = 'DEP-N'")!;
 
-      // Find an active dock door at WH-C
-      const dock = one("SELECT id, code FROM locations WHERE site_id = ? AND kind = 'dock_door' AND active = 1 LIMIT 1", [wh.id])!;
+      // A door with no live assignment, so a yard swap is actually eligible.
+      const dock = one(
+        `SELECT l.id, l.code FROM locations l
+         WHERE l.site_id = ? AND l.kind = 'dock_door' AND l.active = 1
+           AND NOT EXISTS (SELECT 1 FROM dock_assignments d WHERE d.location_id = l.id AND d.released_at IS NULL)
+         ORDER BY l.code LIMIT 1`,
+        [wh.id],
+      )!;
       appointmentDockId = dock.id;
 
-      // Create test vehicles
+      // Create test vehicles and a driver. Dispatch requires both.
+      run("DELETE FROM trips WHERE vehicle_id IN ('veh_cop_trip', 'veh_cop_yard') OR driver_id = 'drv_cop'");
       run("DELETE FROM vehicles WHERE id IN ('veh_cop_trip', 'veh_cop_yard')");
+      run("DELETE FROM drivers WHERE id = 'drv_cop'");
+      run(
+        `INSERT INTO drivers (id, code, name, license_class, license_expiry, status, home_site_id)
+         VALUES ('drv_cop', 'D-COP', 'Copilot Driver', 'C', '2030-01-01', 'available', ?)`,
+        [depot.id],
+      );
       run(
         `INSERT INTO vehicles (id, code, plate, kind, model, status, home_site_id)
          VALUES ('veh_cop_trip', 'V-COP-01', 'COP-TRIP-1', 'truck', 'Inbound Freight', 'available', ?)`,
@@ -751,6 +773,7 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
           originSiteId: depot.id,
           destinationSiteId: wh.id,
           vehicleId: "veh_cop_trip",
+          driverId: "drv_cop",
           plannedDeparture: new Date(Date.now() - 3600_000).toISOString(),
           plannedArrival: new Date(Date.now() + 1800_000).toISOString(),
           notes: "Scheduled inbound high-priority freight",
@@ -832,6 +855,7 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       assert.ok(swapAction.payload.visitId);
 
       recommendationId = rec.id;
+      recRevision = rec.revision;
     });
 
     it("executes 1-click Copilot recommendation and applies dock assignment atomically", async () => {
@@ -839,6 +863,7 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
         method: "POST",
         url: `/copilot/recommendations/${recommendationId}/apply`,
         headers: { "x-session": towerToken },
+        payload: { revision: recRevision },
       });
       assert.equal(applyRes.statusCode, 200);
       const appliedRec = JSON.parse(applyRes.payload);
@@ -887,6 +912,20 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       });
       assert.equal(cfgSet.statusCode, 200);
       assert.equal(JSON.parse(cfgSet.payload).autoPilot, true);
+
+      // The applied window already covers the trip ETA. Pull it forward of that ETA
+      // so the next disruption has a validated reschedule and no free dock to swap.
+      const tripNow = JSON.parse(
+        (await app.inject({ method: "GET", url: `/trips/${copilotTripId}`, headers: { "x-session": towerToken } })).payload,
+      );
+      const eta = Date.parse(tripNow.etaAt);
+      const windowStart = new Date(Date.now() + 60_000).toISOString();
+      const windowEnd = new Date(Date.now() + 5 * 60_000).toISOString();
+      assert.ok(eta > Date.parse(windowEnd));
+      run(
+        `UPDATE dock_appointments SET window_start = ?, window_end = ?, status = 'scheduled' WHERE trip_id = ?`,
+        [windowStart, windowEnd, copilotTripId],
+      );
 
       // Report another issue on the trip with 'delay'
       const issueRes2 = await app.inject({

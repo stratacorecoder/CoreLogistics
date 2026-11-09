@@ -464,6 +464,88 @@
   color: var(--muted);
 }
 
+.driver-report-list {
+  display: grid;
+  gap: 8px;
+}
+.driver-report {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  border: 0;
+  border-radius: 14px;
+  background: var(--danger-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 48%, transparent);
+  cursor: pointer;
+}
+.driver-report.is-warn {
+  background: var(--warn-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 55%, transparent);
+}
+.driver-report:hover {
+  box-shadow: inset 0 0 0 1px var(--danger), var(--card-shadow);
+}
+.driver-report.is-warn:hover {
+  box-shadow: inset 0 0 0 1px var(--warn), var(--card-shadow);
+}
+.driver-report:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.driver-report-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.driver-report-kind {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--danger);
+}
+.driver-report.is-warn .driver-report-kind,
+.driver-report.is-warn .driver-report-time,
+.driver-report.is-warn .driver-report-actor {
+  color: var(--warn);
+}
+.driver-report-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+.driver-report-time,
+.driver-report-actor {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+.driver-report-actor { margin-left: 0; }
+.driver-report-text {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.activity-timeline-row.is-issue {
+  background: var(--danger-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.activity-timeline-row.is-issue.is-warn {
+  background: var(--warn-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 50%, transparent);
+}
+.activity-timeline-row.is-issue .activity-time,
+.activity-timeline-row.is-issue .activity-actor { color: var(--danger); font-weight: 700; }
+.activity-timeline-row.is-issue.is-warn .activity-time,
+.activity-timeline-row.is-issue.is-warn .activity-actor { color: var(--warn); }
+.activity-timeline-row.is-issue .activity-msg { font-weight: 600; }
+
 .activity-timeline-list {
   display: flex;
   flex-direction: column;

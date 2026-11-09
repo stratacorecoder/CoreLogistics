@@ -145,7 +145,17 @@ function huSeen(tag: string, loc: Location, ctx: Ctx): Outcome {
   if (loc.kind === "bin") {
     const task = openPutawayForHu(hu.id);
     if (!task) return { ...base, accepted: false, action: "ignored", detail: `${hu.code} has no open putaway` };
-    confirmPutaway(task.id, loc.id, ctx);
+    confirmPutaway(
+      task.id,
+      {
+        mode: "match",
+        requestId: `ingest-${task.id}-${loc.id}`,
+        entryMethod: "manual",
+        huBarcode: hu.code,
+        binBarcode: loc.code,
+      },
+      ctx,
+    );
     return { ...base, accepted: true, action: "putaway.done", detail: `${hu.code} stored in ${loc.code}` };
   }
   if (loc.kind === "dock_door") {

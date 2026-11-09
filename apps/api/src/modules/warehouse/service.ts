@@ -6,6 +6,7 @@ import {
   SortRuleInputSchema,
   type HandlingUnit,
   type InventoryRow,
+  type PutawayConfirmInput,
   type PutawayTask,
   type Receipt,
   type Sku,
@@ -14,9 +15,10 @@ import {
 } from "@corelogistics/contracts";
 import type { z } from "zod";
 import { many, newId, nextCode, nowIso, one, placeholders, run, splitList, toBool, tx, type Row } from "../../db.js";
-import { badRequest, conflict, must, notFound } from "../../errors.js";
+import { badRequest, conflict, forbidden, must, notFound } from "../../errors.js";
 import { at, emit, type Ctx } from "../../events.js";
 import { getLocation, getSite } from "../sites/service.js";
+import { confirmationHash, confirmOnce, normCode } from "./confirm.js";
 
 // SKUs -----------------------------------------------------------------------
 
@@ -592,34 +594,103 @@ export function createPutaway(hu: HandlingUnit, ctx: Ctx): PutawayTask {
   return getPutaway(id);
 }
 
-export function confirmPutaway(taskId: string, locationId: string | undefined, ctx: Ctx): PutawayTask {
-  return tx(() => {
-    const task = getPutaway(taskId);
-    if (task.status !== "open") throw badRequest(`Task is ${task.status}`);
-    const hu = getHu(task.huId);
-    const targetId = locationId ?? task.suggestedLocationId;
-    if (!targetId) throw badRequest("No suggested bin; pass locationId");
-    const bin = getLocation(targetId);
-    if (bin.siteId !== task.siteId || bin.kind !== "bin" || !bin.active) throw badRequest("Target must be a bin at this site");
-    if ((hu.zone === "H") !== (bin.zone === "H")) throw badRequest("Hazmat goods and H bins must match");
-    if (binLoad(bin.id, task.id) >= bin.capacity) throw conflict(`${bin.code} is full`);
-    const when = at(ctx);
-    run("UPDATE handling_units SET status = 'stored', location_id = ?, updated_at = ? WHERE id = ?", [bin.id, when, hu.id]);
-    adjustInventory(task.siteId, bin.id, hu.skuId, hu.qty);
-    run(
-      "UPDATE putaway_tasks SET status = 'done', confirmed_location_id = ?, completed_at = ?, actor = ? WHERE id = ?",
-      [bin.id, when, ctx.actor, task.id],
+function matchPutawayUnit(task: PutawayTask, barcode: string) {
+  const code = normCode(barcode);
+  if (code === normCode(task.huCode)) return;
+  const other = one<{ site_id: string }>(
+    `SELECT site_id FROM handling_units WHERE UPPER(code) = ?`,
+    [code],
+  );
+  if (other && other.site_id !== task.siteId) throw badRequest(`Wrong label: unit ${code} belongs to another site`);
+  throw badRequest(`Wrong label: expected unit ${task.huCode}`);
+}
+
+function binFromBarcode(siteId: string, barcode: string) {
+  const code = normCode(barcode);
+  const row = one<{ id: string }>(
+    "SELECT id FROM locations WHERE site_id = ? AND UPPER(code) = ? AND active = 1",
+    [siteId, code],
+  );
+  if (!row) {
+    const other = one(
+      `SELECT 1 FROM locations WHERE UPPER(code) = ? AND site_id != ? LIMIT 1`,
+      [code, siteId],
     );
-    emit(ctx, {
-      type: "putaway.done",
-      siteId: task.siteId,
-      huId: hu.id,
-      locationId: bin.id,
-      entityId: task.id,
-      message: `${hu.code} stored in ${bin.code}${bin.id !== task.suggestedLocationId ? ` (suggested ${task.suggestedCode ?? "none"})` : ""}`,
-    });
-    return getPutaway(task.id);
-  });
+    if (other) throw badRequest(`Wrong label: bin ${code} belongs to another site`);
+    throw badRequest(`Wrong label: no bin matches ${code}`);
+  }
+  const bin = getLocation(row.id);
+  if (bin.kind !== "bin") throw badRequest(`Wrong label: ${code} is not a storage bin`);
+  return bin;
+}
+
+export function confirmPutaway(
+  taskId: string,
+  input: PutawayConfirmInput,
+  ctx: Ctx,
+  auth?: { tower?: boolean },
+): PutawayTask {
+  if (input.mode === "override" && !auth?.tower) {
+    throw forbidden("Control Tower planner role required to bypass barcode matching");
+  }
+  const hash = confirmationHash([
+    taskId,
+    input.mode,
+    input.entryMethod,
+    normCode(input.huBarcode),
+    normCode(input.binBarcode),
+    input.mode === "override" ? input.reason : "",
+  ]);
+  return confirmOnce("putaway", taskId, input.requestId, hash, () =>
+    tx(() => {
+      const task = getPutaway(taskId);
+      if (task.status !== "open") throw conflict(`Stale task: task is ${task.status}`);
+      const hu = getHu(task.huId);
+      if (hu.siteId !== task.siteId) throw conflict(`Stale task: ${hu.code} is not at this site`);
+      if (hu.status !== "sorted") throw conflict(`Stale task: ${hu.code} is ${hu.status}`);
+      if (input.mode === "match") matchPutawayUnit(task, input.huBarcode);
+      const barcode = normCode(input.binBarcode);
+      const bin = barcode
+        ? binFromBarcode(task.siteId, barcode)
+        : task.suggestedLocationId
+          ? getLocation(task.suggestedLocationId)
+          : null;
+      if (!bin) throw badRequest("No suggested bin; scan a destination bin");
+      if (bin.siteId !== task.siteId || bin.kind !== "bin" || !bin.active) {
+        throw badRequest("Wrong label: target must be a bin at this site");
+      }
+      if ((hu.zone === "H") !== (bin.zone === "H")) throw badRequest("Hazmat goods and H bins must match");
+      if (binLoad(bin.id, task.id) >= bin.capacity) throw conflict(`${bin.code} is full`);
+      const when = at(ctx);
+      run("UPDATE handling_units SET status = 'stored', location_id = ?, updated_at = ? WHERE id = ?", [bin.id, when, hu.id]);
+      adjustInventory(task.siteId, bin.id, hu.skuId, hu.qty);
+      run(
+        "UPDATE putaway_tasks SET status = 'done', confirmed_location_id = ?, completed_at = ?, actor = ? WHERE id = ?",
+        [bin.id, when, ctx.actor, task.id],
+      );
+      emit(ctx, {
+        type: "putaway.done",
+        siteId: task.siteId,
+        huId: hu.id,
+        locationId: bin.id,
+        entityId: task.id,
+        message:
+          input.mode === "override"
+            ? `Tower review stored ${hu.code} in ${bin.code}: ${input.reason}`
+            : `${hu.code} stored in ${bin.code}${bin.id !== task.suggestedLocationId ? ` (suggested ${task.suggestedCode ?? "none"})` : ""}`,
+        payload: {
+          requestId: input.requestId,
+          entryMethod: input.entryMethod,
+          huBarcode: normCode(input.huBarcode),
+          binBarcode: barcode,
+          mode: input.mode,
+          review: input.mode === "override" ? "tower_override" : null,
+          reason: input.mode === "override" ? input.reason : null,
+        },
+      });
+      return getPutaway(task.id);
+    }),
+  );
 }
 
 export function openPutawayForHu(huId: string): PutawayTask | undefined {

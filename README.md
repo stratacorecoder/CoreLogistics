@@ -23,7 +23,7 @@ npm run db:reset   # wipe and reseed the demo data (API stopped)
 | Warehouse floor | http://localhost:5182 |
 | Driver | http://localhost:5183 |
 
-The database lives at `apps/api/data/corelogistics.db` and is seeded with a week of history on first start. See `.env.example` for the port, database and API URL overrides.
+The database lives at `apps/api/data/corelogistics.db`. `npm run dev` seeds a week of demo history and the demo logins. A production start does not, unless `CORELOGISTICS_DEMO=1` is set. See `.env.example` and [docs/deployment.md](docs/deployment.md) for storage, HTTPS, monitoring, and recovery.
 
 ## Apps
 

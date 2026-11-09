@@ -1,6 +1,11 @@
 import {
+  CopilotAnswerSchema,
+  CopilotAskSchema,
   CopilotConfigSchema,
+  CopilotJobSchema,
+  CopilotMonitoringSchema,
   CopilotRecommendationSchema,
+  CopilotRevisionSchema,
 } from "@corelogistics/contracts";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -13,6 +18,9 @@ import {
   listRecommendations,
   setAutoPilotConfig,
 } from "./service.js";
+import { answerCopilot } from "./assistant.js";
+import { phraseCopilotAnswer } from "./phrase.js";
+import { getCopilotMonitoring, listCopilotJobs, retryFailedJob } from "./worker.js";
 
 export const copilotRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get(
@@ -52,10 +60,11 @@ export const copilotRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ["copilot"],
         summary: "Apply copilot recommendation",
         params: z.object({ id: z.string() }),
+        body: CopilotRevisionSchema,
         response: { 200: CopilotRecommendationSchema },
       },
     },
-    async (req) => applyRecommendation(req.params.id, ctxOf(req)),
+    async (req) => applyRecommendation(req.params.id, req.body.revision, ctxOf(req)),
   );
 
   app.post(
@@ -65,10 +74,67 @@ export const copilotRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ["copilot"],
         summary: "Dismiss copilot recommendation",
         params: z.object({ id: z.string() }),
+        body: CopilotRevisionSchema,
         response: { 200: CopilotRecommendationSchema },
       },
     },
-    async (req) => dismissRecommendation(req.params.id, ctxOf(req)),
+    async (req) => dismissRecommendation(req.params.id, req.body.revision, ctxOf(req)),
+  );
+
+  app.get(
+    "/copilot/monitoring",
+    {
+      schema: {
+        tags: ["copilot"],
+        summary: "Copilot worker heartbeat, backlog, and monitored events",
+        response: { 200: CopilotMonitoringSchema },
+      },
+    },
+    async () => getCopilotMonitoring(),
+  );
+
+  app.get(
+    "/copilot/jobs",
+    {
+      schema: {
+        tags: ["copilot"],
+        summary: "List copilot jobs, usually the failed ones",
+        querystring: z.object({ status: CopilotJobSchema.shape.status.optional() }),
+        response: { 200: z.array(CopilotJobSchema) },
+      },
+    },
+    async (req) => listCopilotJobs(req.query.status),
+  );
+
+  app.post(
+    "/copilot/jobs/:id/retry",
+    {
+      schema: {
+        tags: ["copilot"],
+        summary: "Retry a failed copilot job",
+        params: z.object({ id: z.string() }),
+        response: { 200: CopilotJobSchema },
+      },
+    },
+    async (req) => retryFailedJob(req.params.id),
+  );
+
+  app.post(
+    "/copilot/ask",
+    {
+      schema: {
+        tags: ["copilot"],
+        summary: "Answer a control-tower question from the live operation",
+        body: CopilotAskSchema,
+        response: { 200: CopilotAnswerSchema },
+      },
+    },
+    async (req) =>
+      phraseCopilotAnswer(
+        req.body.question,
+        answerCopilot({ question: req.body.question, siteId: req.body.siteId }),
+        req.body.history,
+      ),
   );
 
   app.get(
@@ -93,6 +159,6 @@ export const copilotRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 200: CopilotConfigSchema },
       },
     },
-    async (req) => ({ autoPilot: setAutoPilotConfig(req.body.autoPilot) }),
+    async (req) => ({ autoPilot: setAutoPilotConfig(req.body.autoPilot, ctxOf(req)) }),
   );
 };

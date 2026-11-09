@@ -1,15 +1,8 @@
 import { buildApp } from "./app.js";
+import { prepareDatabase } from "./boot.js";
 import { dbFile } from "./db.js";
-import { migrate } from "./migrate.js";
-import { rebaseStaleOpenOrders } from "./modules/outbound/service.js";
-import { rebaseStaleOpenTrips } from "./modules/trips/service.js";
-import { ensureDemoUsers, seedIfEmpty } from "./seed.js";
 
-const applied = migrate();
-const seeded = seedIfEmpty();
-ensureDemoUsers();
-const refreshedTrips = rebaseStaleOpenTrips();
-const refreshedOrders = rebaseStaleOpenOrders();
+const { applied, seeded, refreshedTrips, refreshedOrders } = prepareDatabase();
 
 const app = await buildApp({ logger: true });
 if (applied.length) app.log.info({ applied }, "migrations applied");

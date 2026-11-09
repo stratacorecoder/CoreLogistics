@@ -1,12 +1,14 @@
-import type { Location, Order, PickTask, ReleaseResult } from "@corelogistics/contracts";
+import type { Location, Order, PickTask, ReleaseResult, ScanEntryMethod } from "@corelogistics/contracts";
 import {
   api,
+  classifyConfirmError,
   Empty,
   Field,
   fmtDateTime,
   fromLocalInput,
   fromNow,
   Modal,
+  newConfirmRequestId,
   Panel,
   Pill,
   Progress,
@@ -15,11 +17,12 @@ import {
   toLocalInput,
   useAction,
   useApi,
+  type ConfirmFailure,
   type Refs,
 } from "@corelogistics/ui";
 import { useEffect, useState } from "react";
 
-export function PickView({ siteId, refs }: { siteId: string; refs: Refs }) {
+export function PickView({ siteId, refs, canOverride = false }: { siteId: string; refs: Refs; canOverride?: boolean }) {
   const orders = useApi<Order[]>(`/outbound/orders${qs({ siteId, status: "open,picking,picked,staged" })}`);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -58,7 +61,7 @@ export function PickView({ siteId, refs }: { siteId: string; refs: Refs }) {
           <Empty>No orders to work</Empty>
         )}
       </Panel>
-      {order ? <OrderPanel key={order.id} order={order} refs={refs} /> : <Panel title="Order"><Empty>Select an order</Empty></Panel>}
+      {order ? <OrderPanel key={order.id} order={order} refs={refs} canOverride={canOverride} /> : <Panel title="Order"><Empty>Select an order</Empty></Panel>}
       {creating ? (
         <NewOrder
           siteId={siteId}
@@ -74,7 +77,7 @@ export function PickView({ siteId, refs }: { siteId: string; refs: Refs }) {
   );
 }
 
-function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
+function OrderPanel({ order, refs, canOverride }: { order: Order; refs: Refs; canOverride: boolean }) {
   const picks = useApi<PickTask[]>(`/outbound/picks${qs({ orderId: order.id })}`);
   const staging = useApi<Location[]>(`/sites/${order.siteId}/locations${qs({ kind: "staging" })}`, { live: false });
   const { busy, run } = useAction();
@@ -152,39 +155,7 @@ function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
         <Panel title={`Pick list (${open.length})`}>
           <div className="list">
             {open.map((p) => (
-              <div key={p.id} className="item">
-                <div className="row-between">
-                  <div>
-                    <span className="mono strong" style={{ fontSize: 22 }}>{p.fromLocationCode}</span>
-                    <div className="item-meta">
-                      Take <strong>{p.qty}</strong> × {p.skuCode} {p.skuName} from <span className="mono">{p.fromHuCode}</span>
-                    </div>
-                    {(p.lotNumber || p.expiryDate) ? (
-                      <div className="row gap-sm" style={{ marginTop: 4 }}>
-                        {p.lotNumber ? <span className="pill">Lot: {p.lotNumber}</span> : null}
-                        {p.expiryDate ? <span className="pill tone-warn">Exp: {p.expiryDate}</span> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button
-                      className="btn btn-primary btn-lg"
-                      disabled={busy}
-                      onClick={() => run(() => api.post(`/outbound/picks/${p.id}/confirm`), `Picked ${p.qty} × ${p.skuCode}`)}
-                    >
-                      Picked
-                    </button>
-                    <ScanButton
-                      title="Scan bin or pallet barcode to confirm pick"
-                      onScan={(code) => {
-                        if (code.toUpperCase() === p.fromLocationCode.toUpperCase() || code.toUpperCase() === p.fromHuCode.toUpperCase()) {
-                          void run(() => api.post(`/outbound/picks/${p.id}/confirm`), `Picked ${p.qty} × ${p.skuCode}`);
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+              <PickRow key={p.id} task={p} busy={busy} run={run} canOverride={canOverride} />
             ))}
           </div>
         </Panel>
@@ -208,6 +179,112 @@ function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
             </tbody>
           </table>
         </Panel>
+      ) : null}
+    </div>
+  );
+}
+
+function PickRow({
+  task,
+  busy,
+  run,
+  canOverride,
+}: {
+  task: PickTask;
+  busy: boolean;
+  run: ReturnType<typeof useAction>["run"];
+  canOverride: boolean;
+}) {
+  const [code, setCode] = useState("");
+  const [method, setMethod] = useState<ScanEntryMethod>("keyboard");
+  const [detected, setDetected] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [requestId, setRequestId] = useState(newConfirmRequestId);
+  const [failure, setFailure] = useState<ConfirmFailure | null>(null);
+
+  const submit = (override: boolean) =>
+    run(async () => {
+      try {
+        const result = await api.post(`/outbound/picks/${task.id}/confirm`, {
+          mode: override ? "override" : "match",
+          requestId,
+          entryMethod: method,
+          huBarcode: code.trim() || undefined,
+          ...(override ? { reason: reason.trim() } : {}),
+        });
+        setCode("");
+        setDetected(null);
+        setReason("");
+        setFailure(null);
+        setRequestId(newConfirmRequestId());
+        return result;
+      } catch (err) {
+        setFailure(classifyConfirmError(err));
+        throw err;
+      }
+    }, `Stock confirmed: ${task.qty} × ${task.skuCode}`);
+
+  return (
+    <div className="item">
+      <div className="row-between">
+        <div>
+          <span className="mono strong" style={{ fontSize: 22 }}>{task.fromLocationCode}</span>
+          <div className="item-meta">
+            Take <strong>{task.qty}</strong> × {task.skuCode} {task.skuName} from <span className="mono">{task.fromHuCode}</span>
+          </div>
+          {(task.lotNumber || task.expiryDate) ? (
+            <div className="row gap-sm" style={{ marginTop: 4 }}>
+              {task.lotNumber ? <span className="pill">Lot: {task.lotNumber}</span> : null}
+              {task.expiryDate ? <span className="pill tone-warn">Exp: {task.expiryDate}</span> : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <label className="small" htmlFor={`pick-${task.id}`} style={{ display: "block", marginTop: 8 }}>
+        Pallet barcode
+      </label>
+      <div className="row" style={{ marginTop: 4 }}>
+        <input
+          id={`pick-${task.id}`}
+          className="input scan-input grow"
+          value={code}
+          autoComplete="off"
+          onChange={(event) => {
+            setCode(event.target.value);
+            setMethod("keyboard");
+            setDetected(null);
+          }}
+        />
+        <ScanButton
+          title="Scan pallet barcode"
+          onScan={(scanned, via) => {
+            setCode(scanned);
+            setMethod(via === "manual" ? "manual" : "camera");
+            setDetected(scanned);
+          }}
+        />
+        <button className="btn btn-primary" disabled={busy || !code.trim()} onClick={() => void submit(false)}>
+          Confirm pick
+        </button>
+      </div>
+      {detected ? <p className="small">Code detected: <span className="mono">{detected}</span>. Stock is not confirmed until you submit.</p> : null}
+      {failure ? (
+        <div className="error-note" role="alert" style={{ marginTop: 8 }}>
+          <strong>{failure.title}.</strong> {failure.message}
+          {failure.retry ? (
+            <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} disabled={busy} onClick={() => void submit(false)}>
+              Retry same request
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {canOverride ? (
+        <div className="row" style={{ marginTop: 8 }}>
+          <input className="input grow" placeholder="Tower reason for bypassing the label" value={reason} onChange={(event) => setReason(event.target.value)} />
+          <button className="btn btn-ghost" disabled={busy || reason.trim().length < 3} onClick={() => void submit(true)}>
+            Tower review
+          </button>
+        </div>
       ) : null}
     </div>
   );

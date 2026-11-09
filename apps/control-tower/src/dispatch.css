@@ -543,6 +543,32 @@
   color: var(--text);
 }
 
+.trip-report {
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: var(--danger-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 42%, transparent);
+}
+.trip-report.is-warn {
+  background: var(--warn-subtle);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 50%, transparent);
+}
+.trip-report-kind {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--danger);
+}
+.trip-report.is-warn .trip-report-kind { color: var(--warn); }
+.trip-report-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .trip-card-footer {
   display: flex;
   align-items: center;
@@ -571,6 +597,12 @@
 
 .timing-icon {
   flex-shrink: 0;
+}
+
+@media (max-width: 840px), (max-height: 500px) and (max-width: 960px) {
+  .dispatch-search-box { min-width: 0; max-width: none; flex: 1 1 100%; }
+  .dispatch-search-input { min-height: 44px; font-size: 16px; }
+  .filter-chip { min-height: 44px; }
 }
 
 

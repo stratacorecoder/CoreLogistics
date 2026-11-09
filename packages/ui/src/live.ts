@@ -7,17 +7,26 @@ const listeners = new Set<Listener>();
 const statusListeners = new Set<(online: boolean) => void>();
 let source: EventSource | null = null;
 let online = false;
+export type StreamPhase = "connecting" | "online" | "offline";
+let phase: StreamPhase = "connecting";
+const phaseListeners = new Set<(next: StreamPhase) => void>();
 
 function setOnline(v: boolean) {
   online = v;
   for (const fn of statusListeners) fn(v);
 }
 
+function setPhase(next: StreamPhase) {
+  phase = next;
+  setOnline(next === "online");
+  for (const fn of phaseListeners) fn(next);
+}
+
 function ensureSource() {
   if (source) return;
   source = new EventSource(`${API_URL}/stream`);
-  source.onopen = () => setOnline(true);
-  source.onerror = () => setOnline(false);
+  source.onopen = () => setPhase("online");
+  source.onerror = () => setPhase("offline");
   source.addEventListener("event", (msg) => {
     const e = JSON.parse((msg as MessageEvent).data) as EventRecord;
     for (const fn of listeners) fn(e);
@@ -45,6 +54,20 @@ export function useStreamStatus(): boolean {
     statusListeners.add(setState);
     return () => {
       statusListeners.delete(setState);
+    };
+  }, []);
+  return state;
+}
+
+/** Connecting until the first open or error, then online or offline. */
+export function useStreamPhase(): StreamPhase {
+  const [state, setState] = useState(phase);
+  useEffect(() => {
+    ensureSource();
+    phaseListeners.add(setState);
+    setState(phase);
+    return () => {
+      phaseListeners.delete(setState);
     };
   }, []);
   return state;

@@ -82,6 +82,7 @@ function DriverHome({ driver, refs }: { driver: Driver; refs: Refs }) {
                   {refs.siteName(t.originSiteId)} → {refs.siteName(t.destinationSiteId)}
                 </div>
                 <div className="item-meta">
+                  {t.status === "planned" ? "Waiting for dispatch · " : ""}
                   Departs {fmtDateTime(t.plannedDeparture)} ({fromNow(t.plannedDeparture, now)})
                 </div>
               </div>
@@ -279,12 +280,10 @@ function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number 
           </button>
         ) : null}
         {trip.status === "planned" ? (
-          <>
-            <p className="muted small">Not yet dispatched. Departs {fromNow(trip.plannedDeparture, now)}.</p>
-            <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => act("depart", "Departure confirmed")}>
-              I'm leaving now
-            </button>
-          </>
+          <p className="muted small">
+            This trip is assigned to you and waiting for dispatch. The yard keeps it on the expected list until Control Tower
+            dispatches it. You can confirm departure after that. Departs {fromNow(trip.plannedDeparture, now)}.
+          </p>
         ) : null}
         {waypoint ? (
           waypoint.arrivedAt ? (
@@ -323,11 +322,12 @@ function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number 
                   onChange={(e) => setPodNotes(e.target.value)}
                 />
                 <ScanButton
-                  title="Scan BOL or seal barcode"
+                  title="Scan a delivery-note reference"
                   onScan={(code) => setPodNotes((prev) => (prev ? `${prev} [BOL: ${code}]` : `[BOL: ${code}]`))}
                 />
               </div>
             </Field>
+            <p className="muted small">A scanned code is stored as a delivery-note reference. It does not prove the document or the seal.</p>
             <SignaturePad onSign={setSignature} onClear={() => setSignature("")} />
             <button
               className="btn btn-primary btn-block"

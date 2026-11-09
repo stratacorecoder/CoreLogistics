@@ -335,10 +335,12 @@ export function dispatchTrip(id: string, ctx: Ctx): Trip {
 
 export function departTrip(id: string, ctx: Ctx): Trip {
   return tx(() => {
-    let t = getTrip(id);
+    const t = getTrip(id);
     if (["in_transit", "arrived", "completed"].includes(t.status)) return t;
     if (t.status === "cancelled") throw badRequest("Trip is cancelled");
-    if (t.status === "planned") t = dispatchTrip(t.id, ctx);
+    if (t.status !== "dispatched") {
+      throw badRequest("Trip must be dispatched before departure");
+    }
     const when = at(ctx);
     const whenMs = Date.parse(when);
     let plannedDeparture = t.plannedDeparture;
@@ -382,7 +384,9 @@ export function arriveTrip(id: string, ctx: Ctx): Trip {
   return tx(() => {
     let t = getTrip(id);
     if (t.status === "arrived" || t.status === "completed") return t;
-    if (t.status === "planned" || t.status === "dispatched") t = departTrip(t.id, ctx);
+    if (t.status === "cancelled") throw badRequest("Trip is cancelled");
+    if (t.status === "planned") throw badRequest("Trip must be dispatched before arrival");
+    if (t.status === "dispatched") t = departTrip(t.id, ctx);
     if (t.status !== "in_transit") throw badRequest(`Trip is ${t.status}`);
     const when = at(ctx);
     run("UPDATE trips SET status = 'arrived', actual_arrival = ? WHERE id = ?", [when, t.id]);

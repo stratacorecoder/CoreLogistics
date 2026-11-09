@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { IdSchema, IsoDateSchema } from "./common.js";
-import { HandlingUnitSchema } from "./warehouse.js";
+import { HandlingUnitSchema, ScanEntryMethodSchema } from "./warehouse.js";
 
 export const ORDER_STATUSES = [
   "open",
@@ -91,6 +91,26 @@ export const ReleaseResultSchema = z.object({
   shortages: z.array(ShortageSchema),
 });
 export type ReleaseResult = z.infer<typeof ReleaseResultSchema>;
+
+const pickRequestShape = {
+  requestId: z.string().trim().min(8).max(80),
+  entryMethod: ScanEntryMethodSchema,
+};
+
+export const PickConfirmInputSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("match"),
+    ...pickRequestShape,
+    huBarcode: z.string().trim().min(1).max(64),
+  }),
+  z.object({
+    mode: z.literal("override"),
+    ...pickRequestShape,
+    huBarcode: z.string().trim().max(64).optional(),
+    reason: z.string().trim().min(3).max(500),
+  }),
+]);
+export type PickConfirmInput = z.infer<typeof PickConfirmInputSchema>;
 
 export const PickConfirmResultSchema = z.object({
   task: PickTaskSchema,
