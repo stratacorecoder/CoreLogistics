@@ -141,37 +141,64 @@ export function saveLayout(siteId: string, layout: SiteLayout, ctx: Ctx): SiteLa
   return tx(() => {
     const derived = deriveLocations(clean);
     const existing = many("SELECT * FROM locations WHERE site_id = ?", [siteId]);
-    const byCell = new Map(existing.map((r) => [`${r.x}:${r.y}:${r.level}`, r]));
-    const keep = new Set<string>();
+    const byCode = new Map<string, Row>();
+    for (const r of existing) {
+      const prev = byCode.get(r.code);
+      if (!prev || toBool(r.active)) byCode.set(r.code, r);
+    }
+    const derivedByCode = new Map(derived.map((l) => [l.code, l]));
+    const keepIds = new Set<string>();
 
     for (const loc of derived) {
-      const key = `${loc.x}:${loc.y}:${loc.level}`;
-      const prev = byCell.get(key);
+      const prev = byCode.get(loc.code);
       if (prev) {
         if (prev.kind !== loc.kind && toBool(prev.active)) {
           const why = locationInUse(prev.id);
           if (why) throw conflict(`Cannot change ${prev.code}: ${why}`);
         }
+        keepIds.add(prev.id);
+      }
+    }
+
+    for (const r of existing) {
+      if (keepIds.has(r.id) || !toBool(r.active)) continue;
+      const why = locationInUse(r.id);
+      if (why) throw conflict(`Cannot remove ${r.code}: ${why}`);
+    }
+
+    // Park existing rows whose grid cell changes or is reclaimed so UNIQUE (site_id, x, y, level) never collides mid-update.
+    const claimedCells = new Set(derived.map((l) => `${l.x}:${l.y}:${l.level}`));
+    let parkOffset = Math.min(0, ...existing.map((r) => Number(r.x)), ...existing.map((r) => Number(r.y))) - 1;
+    for (const r of existing) {
+      const target = keepIds.has(r.id) ? derivedByCode.get(r.code) : undefined;
+      const staysPut = target && r.x === target.x && r.y === target.y && r.level === target.level;
+      if (staysPut) continue;
+      if (target || claimedCells.has(`${r.x}:${r.y}:${r.level}`)) {
+        run("UPDATE locations SET x = ?, y = ? WHERE id = ?", [parkOffset, parkOffset, r.id]);
+        parkOffset -= 1;
+      }
+    }
+
+    for (const r of existing) {
+      if (!keepIds.has(r.id) && toBool(r.active)) {
+        run("UPDATE locations SET active = 0 WHERE id = ?", [r.id]);
+      }
+    }
+
+    for (const loc of derived) {
+      const prev = byCode.get(loc.code);
+      if (prev) {
         run(
-          `UPDATE locations SET kind = ?, code = ?, zone = ?, capacity = ?, active = 1 WHERE id = ?`,
-          [loc.kind, loc.code, loc.zone, loc.capacity, prev.id],
+          `UPDATE locations SET kind = ?, x = ?, y = ?, level = ?, zone = ?, capacity = ?, active = 1 WHERE id = ?`,
+          [loc.kind, loc.x, loc.y, loc.level, loc.zone, loc.capacity, prev.id],
         );
-        keep.add(prev.id);
       } else {
         const id = newId("loc");
         run(
           `INSERT INTO locations (id, site_id, kind, code, x, y, level, zone, capacity, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
           [id, siteId, loc.kind, loc.code, loc.x, loc.y, loc.level, loc.zone, loc.capacity],
         );
-        keep.add(id);
       }
-    }
-
-    for (const r of existing) {
-      if (keep.has(r.id) || !toBool(r.active)) continue;
-      const why = locationInUse(r.id);
-      if (why) throw conflict(`Cannot remove ${r.code}: ${why}`);
-      run("UPDATE locations SET active = 0 WHERE id = ?", [r.id]);
     }
 
     run(

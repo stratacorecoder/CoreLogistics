@@ -12,7 +12,6 @@
   "dependencies": {
     "@corelogistics/contracts": "*",
     "@corelogistics/ui": "*",
-    "motion": "^14.7.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

@@ -2,6 +2,7 @@ import type { Location, Order, PickTask, ReleaseResult } from "@corelogistics/co
 import {
   api,
   Empty,
+  ErrorNote,
   Field,
   fmtDateTime,
   fromLocalInput,
@@ -17,21 +18,24 @@ import {
   useApi,
   type Refs,
 } from "@corelogistics/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 export function PickView({ siteId, refs }: { siteId: string; refs: Refs }) {
-  const orders = useApi<Order[]>(`/outbound/orders${qs({ siteId, status: "open,picking,picked,staged" })}`);
+  const orders = useApi<Order[]>(`/outbound/orders${qs({ siteId, status: "open,picking,picked,staged" })}`, {
+    live: (e) => e.type.startsWith("order.") || e.type === "pick.done",
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const order = orders.data?.find((o) => o.id === selectedId) ?? null;
 
   useEffect(() => {
-    if (!order && orders.data?.length) setSelectedId((orders.data.find((o) => o.status !== "staged") ?? orders.data[0]!).id);
-  }, [orders.data, order]);
+    if (!selectedId && orders.data?.length) setSelectedId((orders.data.find((o) => o.status !== "staged") ?? orders.data[0]!).id);
+  }, [orders.data, selectedId]);
 
   return (
-    <div className="split" style={{ gridTemplateColumns: "340px minmax(0, 1fr)" }}>
+    <div className="split" style={{ "--split-cols": "340px minmax(0, 1fr)" } as CSSProperties}>
       <Panel title="Orders" scroll actions={<button className="btn btn-ghost btn-sm" onClick={() => setCreating(true)}>New order</button>}>
+        <ErrorNote error={orders.error} />
         {orders.data?.length ? (
           <div className="list">
             {orders.data.map((o) => {
@@ -67,6 +71,7 @@ export function PickView({ siteId, refs }: { siteId: string; refs: Refs }) {
           onCreated={(o) => {
             setCreating(false);
             setSelectedId(o.id);
+            void orders.reload();
           }}
         />
       ) : null}
@@ -75,7 +80,9 @@ export function PickView({ siteId, refs }: { siteId: string; refs: Refs }) {
 }
 
 function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
-  const picks = useApi<PickTask[]>(`/outbound/picks${qs({ orderId: order.id })}`);
+  const picks = useApi<PickTask[]>(`/outbound/picks${qs({ orderId: order.id })}`, {
+    live: (e) => e.type.startsWith("order.") || e.type === "pick.done",
+  });
   const staging = useApi<Location[]>(`/sites/${order.siteId}/locations${qs({ kind: "staging" })}`, { live: false });
   const { busy, run } = useAction();
   const [shortages, setShortages] = useState<ReleaseResult["shortages"]>([]);
@@ -84,30 +91,32 @@ function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
   const done = (picks.data ?? []).filter((p) => p.status === "done");
 
   return (
-    <div className="stack" style={{ overflow: "auto" }}>
+    <div className="stack wh-detail-stack">
       <Panel title={`${order.code} → ${refs.siteName(order.customerSiteId)}`} actions={<Pill value={order.status} />}>
         <div className="stack">
           <p className="muted small">Due {fmtDateTime(order.dueAt)}</p>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>SKU</th>
-                <th className="right">Ordered</th>
-                <th className="right">Picked</th>
-              </tr>
-            </thead>
-            <tbody>
-              {order.lines.map((l) => (
-                <tr key={l.id}>
-                  <td>
-                    <span className="strong">{l.skuCode}</span> <span className="muted small">{l.skuName}</span>
-                  </td>
-                  <td className="right">{l.qty}</td>
-                  <td className={`right ${l.pickedQty >= l.qty ? "" : "warn-text"}`}>{l.pickedQty}</td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th className="right">Ordered</th>
+                  <th className="right">Picked</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {order.lines.map((l) => (
+                  <tr key={l.id}>
+                    <td>
+                      <span className="strong">{l.skuCode}</span> <span className="muted small">{l.skuName}</span>
+                    </td>
+                    <td className="right">{l.qty}</td>
+                    <td className={`right ${l.pickedQty >= l.qty ? "" : "warn-text"}`}>{l.pickedQty}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {shortages.length ? (
             <div className="callout tone-warn">
               Short on stock: {shortages.map((s) => `${s.skuCode} (${s.missing} missing)`).join(", ")}. Picks were created for what is available.
@@ -192,21 +201,23 @@ function OrderPanel({ order, refs }: { order: Order; refs: Refs }) {
 
       {done.length ? (
         <Panel title={`Done (${done.length})`}>
-          <table className="table">
-            <tbody>
-              {done.map((p) => (
-                <tr key={p.id}>
-                  <td className="mono">{p.fromLocationCode}</td>
-                  <td>
-                    {p.qty} × {p.skuCode}
-                  </td>
-                  <td className="muted small">
-                    {p.actor ?? ""} {fromNow(p.completedAt)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table className="table">
+              <tbody>
+                {done.map((p) => (
+                  <tr key={p.id}>
+                    <td className="mono">{p.fromLocationCode}</td>
+                    <td>
+                      {p.qty} × {p.skuCode}
+                    </td>
+                    <td className="muted small">
+                      {p.actor ?? ""} {fromNow(p.completedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Panel>
       ) : null}
     </div>

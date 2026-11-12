@@ -268,7 +268,7 @@ export function updateTrip(id: string, patch: z.output<typeof TripPatchSchema>, 
     if (t.status === "dispatched" && (!next.vehicleId || !next.driverId)) {
       throw badRequest("A dispatched trip needs a vehicle and a driver");
     }
-    if (t.status === "dispatched") assertAssetsFree(t.id, next.vehicleId, next.driverId);
+    if (t.status === "dispatched") assertAssetsFree(t.id, next.vehicleId, next.trailerId, next.driverId);
     run(
       `UPDATE trips SET vehicle_id = ?, trailer_id = ?, driver_id = ?, planned_departure = ?, planned_arrival = ?, notes = ? WHERE id = ?`,
       [next.vehicleId, next.trailerId, next.driverId, next.plannedDeparture, next.plannedArrival, next.notes, t.id],
@@ -287,7 +287,12 @@ export function updateTrip(id: string, patch: z.output<typeof TripPatchSchema>, 
   });
 }
 
-function assertAssetsFree(tripId: string, vehicleId: string | null, driverId: string | null) {
+function assertAssetsFree(
+  tripId: string,
+  vehicleId: string | null,
+  trailerId: string | null,
+  driverId: string | null,
+) {
   if (vehicleId) {
     const v = getVehicle(vehicleId);
     if (v.status === "maintenance" || v.status === "inactive") throw conflict(`${v.code} is ${v.status}`);
@@ -297,7 +302,18 @@ function assertAssetsFree(tripId: string, vehicleId: string | null, driverId: st
     );
     if (other) throw conflict(`${v.code} is already committed to ${other.code}`);
   }
+  if (trailerId) {
+    const t = getVehicle(trailerId);
+    if (t.status === "maintenance" || t.status === "inactive") throw conflict(`${t.code} is ${t.status}`);
+    const other = one(
+      `SELECT code FROM trips WHERE (trailer_id = ? OR vehicle_id = ?) AND id != ? AND status IN ('dispatched','in_transit','arrived')`,
+      [trailerId, trailerId, tripId],
+    );
+    if (other) throw conflict(`${t.code} is already committed to ${other.code}`);
+  }
   if (driverId) {
+    const d = getDriver(driverId);
+    if (d.status === "off_duty") throw conflict(`Driver ${d.name} is off_duty`);
     const other = one(
       `SELECT code FROM trips WHERE driver_id = ? AND id != ? AND status IN ('dispatched','in_transit','arrived')`,
       [driverId, tripId],
@@ -317,7 +333,7 @@ export function dispatchTrip(id: string, ctx: Ctx): Trip {
     if (t.status === "dispatched") return t;
     if (t.status !== "planned") throw badRequest(`Trip is ${t.status}`);
     if (!t.vehicleId || !t.driverId) throw badRequest("Assign a vehicle and a driver before dispatching");
-    assertAssetsFree(t.id, t.vehicleId, t.driverId);
+    assertAssetsFree(t.id, t.vehicleId, t.trailerId, t.driverId);
     run("UPDATE trips SET status = 'dispatched' WHERE id = ?", [t.id]);
     const trip = getTrip(t.id);
     refreshAssets(trip);

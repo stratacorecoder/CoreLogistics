@@ -1,8 +1,14 @@
+function defaultApiUrl(): string {
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:3100`;
+  }
+  return "http://localhost:3100";
+}
+
 export const API_URL: string =
-  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:3100";
+  (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || defaultApiUrl();
 
 const ACTOR_KEY = "corelogistics.actor";
-const SESSION_KEY = "corelogistics.session";
 
 export function getActor(): string {
   return localStorage.getItem(ACTOR_KEY) ?? "";
@@ -13,16 +19,7 @@ export function setActor(name: string) {
   window.dispatchEvent(new CustomEvent("corelogistics:actor", { detail: name }));
 }
 
-export function getSession(): string | null {
-  return localStorage.getItem(SESSION_KEY);
-}
-
-export function setSession(token: string) {
-  localStorage.setItem(SESSION_KEY, token);
-}
-
 export function clearSession() {
-  localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(ACTOR_KEY);
 }
 
@@ -31,15 +28,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const actor = getActor();
   if (actor) headers["x-actor"] = encodeURIComponent(actor);
-  const token = getSession();
-  if (token) headers["x-session"] = token;
   const res = await fetch(`${API_URL}${path}`, {
     method,
+    credentials: "include",
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error ?? res.statusText);
+  if (!res.ok) {
+    if (res.status === 401 && path !== "/auth/login" && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("corelogistics:unauthorized"));
+    }
+    throw new Error((data as { error?: string }).error ?? res.statusText);
+  }
   return data as T;
 }
 

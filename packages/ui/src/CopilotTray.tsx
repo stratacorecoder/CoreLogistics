@@ -8,7 +8,10 @@ import { useState } from "react";
 import { api } from "./api.js";
 import { Empty, Pill } from "./components.js";
 import { fromNow } from "./format.js";
-import { useAction, useApi, useNow } from "./live.js";
+import { useAction, useApi, useNow, useStreamStatus } from "./live.js";
+
+const isCopilotEvent = (e: { type: string }) =>
+  e.type.startsWith("copilot.") || e.type === "trip.issue" || e.type === "trip.updated";
 
 const SEVERITY_TONE: Record<CopilotSeverity, string> = {
   critical: "danger",
@@ -18,9 +21,16 @@ const SEVERITY_TONE: Record<CopilotSeverity, string> = {
 };
 
 export function CopilotBadge({ siteId, onOpen }: { siteId?: string | null; onOpen: () => void }) {
+  const online = useStreamStatus();
   const q = siteId ? `?siteId=${siteId}&status=pending` : "?status=pending";
-  const { data: recs } = useApi<CopilotRecommendation[]>(`/copilot/recommendations${q}`, { intervalMs: 8000 });
-  const { data: config } = useApi<CopilotConfig>("/copilot/config", { intervalMs: 15000 });
+  const { data: recs } = useApi<CopilotRecommendation[]>(`/copilot/recommendations${q}`, {
+    live: isCopilotEvent,
+    intervalMs: online ? undefined : 15_000,
+  });
+  const { data: config } = useApi<CopilotConfig>("/copilot/config", {
+    live: isCopilotEvent,
+    intervalMs: online ? undefined : 30_000,
+  });
   const count = recs?.length ?? 0;
 
   return (
@@ -74,8 +84,8 @@ export function CopilotDrawer({
 }) {
   const now = useNow(15_000);
   const q = siteId ? `?siteId=${siteId}&status=pending` : "?status=pending";
-  const { data: recs, reload: reloadRecs } = useApi<CopilotRecommendation[]>(`/copilot/recommendations${q}`);
-  const { data: config, reload: reloadConfig } = useApi<CopilotConfig>("/copilot/config");
+  const { data: recs } = useApi<CopilotRecommendation[]>(`/copilot/recommendations${q}`, { live: isCopilotEvent });
+  const { data: config } = useApi<CopilotConfig>("/copilot/config", { live: isCopilotEvent });
   const { busy, run } = useAction();
   const [applyingId, setApplyingId] = useState<string | null>(null);
 
@@ -83,19 +93,16 @@ export function CopilotDrawer({
     if (!config) return;
     const next = !config.autoPilot;
     await run(() => api.post("/copilot/config", { autoPilot: next }));
-    reloadConfig();
   };
 
   const handleApply = async (id: string) => {
     setApplyingId(id);
     await run(() => api.post(`/copilot/recommendations/${id}/apply`));
     setApplyingId(null);
-    reloadRecs();
   };
 
   const handleDismiss = async (id: string) => {
     await run(() => api.post(`/copilot/recommendations/${id}/dismiss`));
-    reloadRecs();
   };
 
   return (

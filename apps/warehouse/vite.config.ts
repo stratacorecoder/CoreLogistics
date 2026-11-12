@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH || "/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -12,4 +13,18 @@ export default defineConfig({
     },
   },
   server: { port: 5182, strictPort: true, host: true },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("/node_modules/motion/") || id.includes("/node_modules/framer-motion/")) {
+            return "vendor-motion";
+          }
+          if (id.includes("/node_modules/gsap/") || id.includes("/node_modules/@gsap/")) {
+            return "vendor-gsap";
+          }
+        },
+      },
+    },
+  },
 });

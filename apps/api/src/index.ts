@@ -1,13 +1,18 @@
 import { buildApp } from "./app.js";
 import { dbFile } from "./db.js";
 import { migrate } from "./migrate.js";
+import { pruneExpiredSessions } from "./modules/auth/service.js";
 import { rebaseStaleOpenOrders } from "./modules/outbound/service.js";
 import { rebaseStaleOpenTrips } from "./modules/trips/service.js";
 import { ensureDemoUsers, seedIfEmpty } from "./seed.js";
 
 const applied = migrate();
 const seeded = seedIfEmpty();
-ensureDemoUsers();
+if (seeded || process.env.CORELOGISTICS_SEED_DEMO_USERS === "1" || process.env.NODE_ENV !== "production") {
+  ensureDemoUsers();
+}
+pruneExpiredSessions();
+setInterval(() => pruneExpiredSessions(), 60 * 60 * 1000).unref();
 const refreshedTrips = rebaseStaleOpenTrips();
 const refreshedOrders = rebaseStaleOpenOrders();
 

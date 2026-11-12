@@ -8,7 +8,7 @@ import {
 import { many, newId, nowIso, one, run, toBool, tx, type Row } from "../../db.js";
 import { badRequest, must, notFound } from "../../errors.js";
 import { at, emit, subscribe, systemCtx, type Ctx } from "../../events.js";
-import { assignDock, getVisit } from "../gate/service.js";
+import { assertDockAppointmentWindowFree, assignDock, getAppointment, getVisit } from "../gate/service.js";
 import { getLocation, getSite } from "../sites/service.js";
 import { getTrip } from "../trips/service.js";
 
@@ -240,7 +240,7 @@ export function evaluateDisruption(e: EventRecord): CopilotRecommendation | null
   });
 
   // If Auto-Pilot is enabled and not critical, auto-apply immediately
-  if (getAutoPilotConfig()) {
+  if (getAutoPilotConfig() && severity !== "critical") {
     try {
       return applyRecommendation(id, systemCtx, true);
     } catch {
@@ -266,6 +266,10 @@ export function applyRecommendation(id: string, ctx: Ctx, auto = false): Copilot
         const apptId = String(action.payload.appointmentId);
         const newStart = String(action.payload.newWindowStart);
         const newEnd = String(action.payload.newWindowEnd);
+        const appt = getAppointment(apptId);
+        if (appt.locationId) {
+          assertDockAppointmentWindowFree(appt.siteId, appt.locationId, newStart, newEnd, appt.id);
+        }
         run(
           `UPDATE dock_appointments SET window_start = ?, window_end = ? WHERE id = ?`,
           [newStart, newEnd, apptId],

@@ -2,6 +2,7 @@ import { EventQuerySchema, EventRecordSchema, type EventRecord } from "@corelogi
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { originAllowedForRequest } from "../../app.js";
 import { listEvents, subscribe } from "../../events.js";
 
 export default async function streamRoutes(app: FastifyInstance) {
@@ -28,29 +29,63 @@ export default async function streamRoutes(app: FastifyInstance) {
       const wanted = (e: EventRecord) => !siteId || !e.siteId || e.siteId === siteId;
       reply.hijack();
       const res = reply.raw;
-      res.writeHead(200, {
+      const rawOrigin = typeof req.headers.origin === "string" ? req.headers.origin.trim() : undefined;
+      const origin = rawOrigin && originAllowedForRequest(rawOrigin, req) ? rawOrigin : undefined;
+      const headers: Record<string, string> = {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
-        "Access-Control-Allow-Origin": (req.headers.origin as string) ?? "*",
         "X-Accel-Buffering": "no",
-      });
-      const send = (e: EventRecord) => res.write(`id: ${e.id}\nevent: event\ndata: ${JSON.stringify(e)}\n\n`);
-      res.write("retry: 3000\n\n");
+      };
+      if (origin) {
+        headers["Access-Control-Allow-Origin"] = origin;
+        headers["Access-Control-Allow-Credentials"] = "true";
+        headers.Vary = "Origin";
+      }
+      res.writeHead(200, headers);
+
+      let closed = false;
+      let ping: ReturnType<typeof setInterval> | null = null;
+      let off: (() => void) | null = null;
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        if (ping) clearInterval(ping);
+        off?.();
+      };
+      const safeWrite = (chunk: string) => {
+        if (closed || res.writableEnded || res.destroyed) {
+          cleanup();
+          return false;
+        }
+        try {
+          res.write(chunk);
+          return true;
+        } catch {
+          cleanup();
+          return false;
+        }
+      };
+
+      const send = (e: EventRecord) => safeWrite(`id: ${e.id}\nevent: event\ndata: ${JSON.stringify(e)}\n\n`);
+      safeWrite("retry: 3000\n\n");
 
       const lastId = Number(req.headers["last-event-id"]);
       if (Number.isFinite(lastId) && lastId > 0) {
-        for (const e of listEvents({ afterId: lastId, siteId, limit: 200 }).reverse()) send(e);
+        for (const e of listEvents({ afterId: lastId, siteId, limit: 200 }).reverse()) {
+          if (!send(e)) return;
+        }
       }
 
-      const off = subscribe((e) => {
+      off = subscribe((e) => {
         if (wanted(e)) send(e);
       });
-      const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
-      req.raw.on("close", () => {
-        clearInterval(ping);
-        off();
-      });
+      ping = setInterval(() => {
+        safeWrite(": ping\n\n");
+      }, 25_000);
+      req.raw.on("close", cleanup);
+      res.on("close", cleanup);
+      res.on("error", cleanup);
     },
   );
 }

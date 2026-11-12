@@ -116,52 +116,56 @@ export function SignIn2({
           </button>
         </form>
 
-        <div className="signin-stations">
-          <div className="signin-stations-head">
-            <span>Assigned demo stations</span>
-            <span>1-click login</span>
-          </div>
+        {DEMO_ACCOUNTS.length > 0 ? (
+          <div className="signin-stations">
+            <div className="signin-stations-head">
+              <span>Assigned demo stations</span>
+              <span>1-click login</span>
+            </div>
 
-          <div className="signin-station-grid">
-            {PRIMARY.map((a) => (
-              <button
-                key={a.username}
-                type="button"
-                className="signin-station"
-                disabled={busy}
-                onClick={() => {
-                  setMorePick("");
-                  void signInAs(a.username, a.password);
-                }}
-              >
-                <span className="signin-station-title">{a.title}</span>
-                <span className="signin-station-meta">{a.name} ({a.username})</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="signin-more">
-            <select
-              aria-label="More fleet driver accounts"
-              value={morePick}
-              disabled={busy}
-              onChange={(e) => {
-                const id = e.target.value;
-                setMorePick(id);
-                const account = MORE.find((a) => a.username === id);
-                if (account) void signInAs(account.username, account.password);
-              }}
-            >
-              <option value="">Select active truck driver account…</option>
-              {MORE.map((a) => (
-                <option key={a.username} value={a.username}>
-                  {a.name} · {a.username} ({a.title})
-                </option>
+            <div className="signin-station-grid">
+              {PRIMARY.map((a) => (
+                <button
+                  key={a.username}
+                  type="button"
+                  className="signin-station"
+                  disabled={busy}
+                  onClick={() => {
+                    setMorePick("");
+                    void signInAs(a.username, a.password);
+                  }}
+                >
+                  <span className="signin-station-title">{a.title}</span>
+                  <span className="signin-station-meta">{a.name} ({a.username})</span>
+                </button>
               ))}
-            </select>
-            <ChevronDown aria-hidden />
+            </div>
+
+            {MORE.length > 0 ? (
+              <div className="signin-more">
+                <select
+                  aria-label="More fleet driver accounts"
+                  value={morePick}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setMorePick(id);
+                    const account = MORE.find((a) => a.username === id);
+                    if (account) void signInAs(account.username, account.password);
+                  }}
+                >
+                  <option value="">Select active truck driver account…</option>
+                  {MORE.map((a) => (
+                    <option key={a.username} value={a.username}>
+                      {a.name} · {a.username} ({a.title})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown aria-hidden />
+              </div>
+            ) : null}
           </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );

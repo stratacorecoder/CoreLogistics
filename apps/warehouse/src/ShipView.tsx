@@ -1,24 +1,29 @@
 import { formatKg, type HandlingUnit, type Order, type Shipment, type ShipmentRemoveResult, type Trip } from "@corelogistics/contracts";
-import { api, Empty, Field, fmtTime, Modal, Panel, Pill, Progress, qs, useAction, useApi, type Refs } from "@corelogistics/ui";
-import { useEffect, useState } from "react";
+import { api, Empty, ErrorNote, Field, fmtTime, Modal, Panel, Pill, Progress, qs, useAction, useApi, type Refs } from "@corelogistics/ui";
+import { useEffect, useState, type CSSProperties } from "react";
 
 const capTone = (used: number, cap: number | null) => (cap == null ? undefined : used > cap * 0.95 ? "danger" : used > cap * 0.8 ? "warn" : "ok");
 
 export function ShipView({ siteId, refs }: { siteId: string; refs: Refs }) {
-  const shipments = useApi<Shipment[]>(`/outbound/shipments${qs({ siteId, status: "planning,loading,loaded" })}`);
-  const trips = useApi<Trip[]>(`/trips${qs({ siteId, active: "true" })}`);
+  const shipments = useApi<Shipment[]>(`/outbound/shipments${qs({ siteId, status: "planning,loading,loaded" })}`, {
+    live: (e) => e.type.startsWith("shipment.") || e.type === "hu.loaded" || e.type === "dock.assigned",
+  });
+  const trips = useApi<Trip[]>(`/trips${qs({ siteId, active: "true" })}`, {
+    live: (e) => e.type.startsWith("trip."),
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const shipment = shipments.data?.find((s) => s.id === selectedId) ?? null;
   const outbound = (trips.data ?? []).filter((t) => t.originSiteId === siteId && (t.status === "planned" || t.status === "dispatched"));
 
   useEffect(() => {
-    if (!shipment && shipments.data?.length) setSelectedId(shipments.data[0]!.id);
-  }, [shipments.data, shipment]);
+    if (!selectedId && shipments.data?.length) setSelectedId(shipments.data[0]!.id);
+  }, [shipments.data, selectedId]);
 
   return (
-    <div className="split" style={{ gridTemplateColumns: "340px minmax(0, 1fr)" }}>
+    <div className="split" style={{ "--split-cols": "340px minmax(0, 1fr)" } as CSSProperties}>
       <Panel title="Shipments" scroll actions={<button className="btn btn-ghost btn-sm" onClick={() => setCreating(true)}>Build shipment</button>}>
+        <ErrorNote error={shipments.error || trips.error} />
         {shipments.data?.length ? (
           <div className="list">
             {shipments.data.map((s) => (
@@ -56,6 +61,7 @@ export function ShipView({ siteId, refs }: { siteId: string; refs: Refs }) {
           onCreated={(s) => {
             setCreating(false);
             setSelectedId(s.id);
+            void shipments.reload();
           }}
         />
       ) : null}
@@ -68,8 +74,12 @@ function tripLabel(t: Trip, refs: Refs) {
 }
 
 function ShipmentPanel({ shipment, trips, allTrips, refs }: { shipment: Shipment; trips: Trip[]; allTrips: Trip[]; refs: Refs }) {
-  const hus = useApi<HandlingUnit[]>(`/warehouse/hus${qs({ siteId: shipment.siteId, status: "picked,staged,loaded" })}`);
-  const crossDock = useApi<HandlingUnit[]>(`/outbound/cross-dock${qs({ siteId: shipment.siteId })}`);
+  const hus = useApi<HandlingUnit[]>(`/warehouse/hus${qs({ siteId: shipment.siteId, status: "picked,staged,loaded" })}`, {
+    live: (e) => e.type.startsWith("order.") || e.type === "pick.done" || e.type === "hu.loaded" || e.type.startsWith("shipment."),
+  });
+  const crossDock = useApi<HandlingUnit[]>(`/outbound/cross-dock${qs({ siteId: shipment.siteId })}`, {
+    live: (e) => e.type === "hu.sorted" || e.type === "hu.loaded" || e.type.startsWith("shipment."),
+  });
   const { busy, run } = useAction();
   const [pick, setPick] = useState<Set<string>>(new Set());
   const trip = allTrips.find((t) => t.id === shipment.tripId);
@@ -78,7 +88,7 @@ function ShipmentPanel({ shipment, trips, allTrips, refs }: { shipment: Shipment
   const staged = mine.filter((h) => h.status === "staged");
 
   return (
-    <div className="stack" style={{ overflow: "auto" }}>
+    <div className="stack wh-detail-stack">
       <Panel title={`${shipment.code}`} actions={<Pill value={shipment.status} />}>
         <div className="stack">
           {shipment.status === "planning" ? (
@@ -169,32 +179,34 @@ function ShipmentPanel({ shipment, trips, allTrips, refs }: { shipment: Shipment
 
       <Panel title={`Units (${shipment.huLoaded}/${shipment.huTotal} loaded)`}>
         {mine.length ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Unit</th>
-                <th>Contents</th>
-                <th>Where</th>
-                <th className="right">Weight</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mine.map((h) => (
-                <tr key={h.id}>
-                  <td className="mono strong">{h.code}</td>
-                  <td>
-                    {h.qty} × {h.skuCode}
-                  </td>
-                  <td className="mono">{h.locationCode ?? "—"}</td>
-                  <td className="right">{formatKg(h.weightKg)}</td>
-                  <td>
-                    <Pill value={h.status} />
-                  </td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Unit</th>
+                  <th>Contents</th>
+                  <th>Where</th>
+                  <th className="right">Weight</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {mine.map((h) => (
+                  <tr key={h.id}>
+                    <td className="mono strong">{h.code}</td>
+                    <td>
+                      {h.qty} × {h.skuCode}
+                    </td>
+                    <td className="mono">{h.locationCode ?? "—"}</td>
+                    <td className="right">{formatKg(h.weightKg)}</td>
+                    <td>
+                      <Pill value={h.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <Empty>No units yet. Pick and stage the orders first.</Empty>
         )}

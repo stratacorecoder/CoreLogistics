@@ -1,9 +1,11 @@
 import { HU_KINDS, humanize, type HandlingUnit, type HuKind, type Receipt } from "@corelogistics/contracts";
-import { api, Empty, Field, fmtDateTime, Modal, Panel, Pill, qs, ScanButton, useAction, useApi, type Refs } from "@corelogistics/ui";
-import { useEffect, useState } from "react";
+import { api, Empty, ErrorNote, Field, fmtDateTime, Modal, Panel, Pill, qs, ScanButton, useAction, useApi, type Refs } from "@corelogistics/ui";
+import { useEffect, useState, type CSSProperties } from "react";
 
 export function ReceiveView({ siteId, refs, onSort }: { siteId: string; refs: Refs; onSort: () => void }) {
-  const receipts = useApi<Receipt[]>(`/warehouse/receipts${qs({ siteId, status: "open" })}`);
+  const receipts = useApi<Receipt[]>(`/warehouse/receipts${qs({ siteId, status: "open" })}`, {
+    live: (e) => e.type.startsWith("receipt.") || e.type === "hu.received" || e.type === "dock.assigned",
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const selected = receipts.data?.find((r) => r.id === selectedId) ?? null;
@@ -13,8 +15,9 @@ export function ReceiveView({ siteId, refs, onSort }: { siteId: string; refs: Re
   }, [receipts.data, selectedId]);
 
   return (
-    <div className="split" style={{ gridTemplateColumns: "320px minmax(0, 1fr)" }}>
+    <div className="split" style={{ "--split-cols": "320px minmax(0, 1fr)" } as CSSProperties}>
       <Panel title="Open receipts" scroll actions={<button className="btn btn-ghost btn-sm" onClick={() => setCreating(true)}>New</button>}>
+        <ErrorNote error={receipts.error} />
         {receipts.data?.length ? (
           <div className="list">
             {receipts.data.map((r) => {
@@ -80,7 +83,9 @@ export function ReceiveView({ siteId, refs, onSort }: { siteId: string; refs: Re
 }
 
 function ReceiptPanel({ receipt, refs, onSort }: { receipt: Receipt; refs: Refs; onSort: () => void }) {
-  const hus = useApi<HandlingUnit[]>(`/warehouse/hus${qs({ receiptId: receipt.id })}`);
+  const hus = useApi<HandlingUnit[]>(`/warehouse/hus${qs({ receiptId: receipt.id })}`, {
+    live: (e) => e.type.startsWith("hu.") || e.type.startsWith("receipt."),
+  });
   const { busy, run } = useAction();
   const firstOpen = receipt.lines.find((l) => l.receivedQty < l.expectedQty) ?? receipt.lines[0];
   const [skuId, setSkuId] = useState(firstOpen?.skuId ?? refs.skus?.[0]?.id ?? "");
@@ -154,53 +159,55 @@ function ReceiptPanel({ receipt, refs, onSort }: { receipt: Receipt; refs: Refs;
         </div>
 
         {receipt.lines.length ? (
-          <table className="table wh-sku-table">
-            <thead>
-              <tr>
-                <th>SKU</th>
-                <th className="right">Expected</th>
-                <th className="right">Received</th>
-                <th style={{ width: "35%" }}>Progress</th>
-              </tr>
-            </thead>
-            <tbody>
-              {receipt.lines.map((l) => {
-                const linePct = l.expectedQty ? Math.min(100, Math.round((l.receivedQty / l.expectedQty) * 100)) : 0;
-                const isSelected = l.skuId === skuId;
-                const isDone = l.expectedQty > 0 && l.receivedQty >= l.expectedQty;
-                return (
-                  <tr
-                    key={l.id}
-                    className={`is-clickable${isSelected ? " is-selected" : ""}`}
-                    onClick={() => setSkuId(l.skuId)}
-                  >
-                    <td>
-                      <div className="row" style={{ gap: 6 }}>
-                        <span className="mono strong">{l.skuCode}</span>
-                        {isSelected ? <span className="pill tone-accent small">Selected</span> : null}
-                      </div>
-                      <div className="muted small">{l.skuName}</div>
-                    </td>
-                    <td className="right mono">{l.expectedQty}</td>
-                    <td className={`right mono ${l.receivedQty > l.expectedQty && l.expectedQty ? "warn-text" : isDone ? "ok-text" : ""}`}>
-                      {l.receivedQty}
-                    </td>
-                    <td>
-                      <div className="wh-table-progress-cell">
-                        <div className="wh-mini-bar">
-                          <div
-                            className={`wh-mini-bar-fill ${isDone ? "is-ok" : l.receivedQty > 0 ? "is-accent" : ""}`}
-                            style={{ width: `${linePct}%` }}
-                          />
+          <div className="table-wrap">
+            <table className="table wh-sku-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th className="right">Expected</th>
+                  <th className="right">Received</th>
+                  <th style={{ width: "35%" }}>Progress</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receipt.lines.map((l) => {
+                  const linePct = l.expectedQty ? Math.min(100, Math.round((l.receivedQty / l.expectedQty) * 100)) : 0;
+                  const isSelected = l.skuId === skuId;
+                  const isDone = l.expectedQty > 0 && l.receivedQty >= l.expectedQty;
+                  return (
+                    <tr
+                      key={l.id}
+                      className={`is-clickable${isSelected ? " is-selected" : ""}`}
+                      onClick={() => setSkuId(l.skuId)}
+                    >
+                      <td>
+                        <div className="row" style={{ gap: 6 }}>
+                          <span className="mono strong">{l.skuCode}</span>
+                          {isSelected ? <span className="pill tone-accent small">Selected</span> : null}
                         </div>
-                        <span className="wh-mini-bar-label mono">{linePct}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        <div className="muted small">{l.skuName}</div>
+                      </td>
+                      <td className="right mono">{l.expectedQty}</td>
+                      <td className={`right mono ${l.receivedQty > l.expectedQty && l.expectedQty ? "warn-text" : isDone ? "ok-text" : ""}`}>
+                        {l.receivedQty}
+                      </td>
+                      <td>
+                        <div className="wh-table-progress-cell">
+                          <div className="wh-mini-bar">
+                            <div
+                              className={`wh-mini-bar-fill ${isDone ? "is-ok" : l.receivedQty > 0 ? "is-accent" : ""}`}
+                              style={{ width: `${linePct}%` }}
+                            />
+                          </div>
+                          <span className="wh-mini-bar-label mono">{linePct}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <p className="wh-lines-empty">No expected lines on this receipt. Receive any SKU below.</p>
         )}
@@ -330,39 +337,41 @@ function ReceiptPanel({ receipt, refs, onSort }: { receipt: Receipt; refs: Refs;
         }
       >
         {hus.data?.length ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Unit</th>
-                <th>SKU</th>
-                <th>Lot / Expiry</th>
-                <th className="right">Qty</th>
-                <th>Status</th>
-                <th>Where</th>
-              </tr>
-            </thead>
-            <tbody>
-              {hus.data.map((h) => (
-                <tr key={h.id}>
-                  <td className="mono strong">{h.code}</td>
-                  <td>
-                    <span className="mono">{h.skuCode}</span>{" "}
-                    <span className="muted small">zone {h.zone}</span>
-                  </td>
-                  <td>
-                    {h.lotNumber ? <span className="pill" style={{ marginRight: 4 }}>Lot: {h.lotNumber}</span> : null}
-                    {h.expiryDate ? <span className="muted small">Exp: {h.expiryDate}</span> : (!h.lotNumber ? <span className="muted">—</span> : null)}
-                  </td>
-                  <td className="right mono">{h.qty}</td>
-                  <td>
-                    <Pill value={h.status} />
-                    {h.destinationSiteId ? <Pill tone="violet">→ {refs.siteCode(h.destinationSiteId)}</Pill> : null}
-                  </td>
-                  <td className="mono">{h.locationCode ?? "—"}</td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Unit</th>
+                  <th>SKU</th>
+                  <th>Lot / Expiry</th>
+                  <th className="right">Qty</th>
+                  <th>Status</th>
+                  <th>Where</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {hus.data.map((h) => (
+                  <tr key={h.id}>
+                    <td className="mono strong">{h.code}</td>
+                    <td>
+                      <span className="mono">{h.skuCode}</span>{" "}
+                      <span className="muted small">zone {h.zone}</span>
+                    </td>
+                    <td>
+                      {h.lotNumber ? <span className="pill" style={{ marginRight: 4 }}>Lot: {h.lotNumber}</span> : null}
+                      {h.expiryDate ? <span className="muted small">Exp: {h.expiryDate}</span> : (!h.lotNumber ? <span className="muted">—</span> : null)}
+                    </td>
+                    <td className="right mono">{h.qty}</td>
+                    <td>
+                      <Pill value={h.status} />
+                      {h.destinationSiteId ? <Pill tone="violet">→ {refs.siteCode(h.destinationSiteId)}</Pill> : null}
+                    </td>
+                    <td className="mono">{h.locationCode ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <Empty>Nothing received yet for this receipt.</Empty>
         )}

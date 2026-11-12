@@ -76,14 +76,17 @@ export function authenticateDevice(key: string | undefined): Device {
   return toDevice(r);
 }
 
-export function authenticateTraccarDevice(keyOrCode: string | undefined): Device {
-  if (!keyOrCode) throw unauthorized("Traccar device identifier or key required");
-  let r = one("SELECT * FROM devices WHERE api_key_hash = ?", [hashKey(keyOrCode)]);
-  if (!r) {
-    r = one("SELECT * FROM devices WHERE code = ? AND kind = 'gps'", [keyOrCode]);
+export function authenticateTraccarDevice(key: string | undefined, expectedCode?: string): Device {
+  if (!key) throw unauthorized("Traccar device key required (x-device-key header or key query parameter)");
+  const r = one("SELECT * FROM devices WHERE api_key_hash = ?", [hashKey(key)]);
+  if (!r || !toBool(r.active) || r.kind !== "gps") {
+    throw unauthorized("Unknown or disabled GPS device key");
   }
-  if (!r || !toBool(r.active)) throw unauthorized("Unknown or disabled device");
-  return toDevice(r);
+  const device = toDevice(r);
+  if (expectedCode && device.code !== expectedCode) {
+    throw unauthorized("Device key does not match device identifier");
+  }
+  return device;
 }
 
 interface Outcome {

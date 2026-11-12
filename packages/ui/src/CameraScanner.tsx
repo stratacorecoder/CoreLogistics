@@ -1,5 +1,6 @@
 import { Camera, Flashlight, X } from "lucide-react";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 
 function playBeep() {
   try {
@@ -50,6 +51,8 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
   const [manualCode, setManualCode] = useState("");
   const [detectorSupported, setDetectorSupported] = useState(true);
   const scannedRef = useRef(false);
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
 
   useEffect(() => {
     scannedRef.current = false;
@@ -109,7 +112,7 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
                     playBeep();
                     triggerHaptic();
                     if (scanInterval) clearInterval(scanInterval);
-                    onScan(rawValue.trim());
+                    onScanRef.current(rawValue.trim());
                   }
                 }
               }
@@ -138,7 +141,7 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
-  }, [onScan]);
+  }, []);
 
   const toggleTorch = async () => {
     if (!streamRef.current) return;
@@ -156,13 +159,14 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
 
   const handleManualSubmit = (e: FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (!manualCode.trim()) return;
     playBeep();
     triggerHaptic();
-    onScan(manualCode.trim());
+    onScanRef.current(manualCode.trim());
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: "fixed",
@@ -315,7 +319,8 @@ export function CameraScanner({ onScan, onClose, title = "Scan Barcode or QR" }:
           </button>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -329,10 +334,13 @@ interface ScanButtonProps {
 export function ScanButton({ onScan, title = "Scan barcode", className = "btn btn-ghost btn-sm", style }: ScanButtonProps) {
   const [open, setOpen] = useState(false);
 
-  const handleScan = (code: string) => {
-    setOpen(false);
-    onScan(code);
-  };
+  const handleScan = useCallback(
+    (code: string) => {
+      setOpen(false);
+      onScan(code);
+    },
+    [onScan],
+  );
 
   return (
     <>

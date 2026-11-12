@@ -34,8 +34,8 @@ const TraccarQuerySchema = z.object({
 });
 
 function parseTraccar(data: z.infer<typeof TraccarQuerySchema>, headerKey?: string) {
-  const deviceKey = headerKey ?? data.key ?? data.id;
-  const device = authenticateTraccarDevice(deviceKey);
+  const deviceKey = headerKey ?? data.key;
+  const device = authenticateTraccarDevice(deviceKey, data.id);
   const lng = data.lng ?? data.lon;
   if (lng === undefined || Number.isNaN(lng)) throw badRequest("Missing longitude (lon or lng parameter)");
   if (Number.isNaN(data.lat)) throw badRequest("Invalid latitude");

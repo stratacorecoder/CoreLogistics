@@ -40,11 +40,40 @@ function formatEventTime(iso: string): string {
 
 export function LiveView({ siteId, refs }: { siteId: string; refs: Refs }) {
   const now = useNow(30_000);
-  const board = useApi<SiteBoard>(`/sites/${siteId}/board`);
-  const stats = useApi<AnalyticsSummary>(`/analytics/summary${qs({ siteId, days: 1 })}`);
-  const visits = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, open: "true" })}`);
-  const trips = useApi<Trip[]>(`/trips${qs({ siteId, active: "true" })}`);
-  const events = useApi<EventRecord[]>(`/events${qs({ siteId, limit: 40 })}`);
+  const forSite = (e: EventRecord) => !e.siteId || e.siteId === siteId;
+  const board = useApi<SiteBoard>(`/sites/${siteId}/board`, {
+    live: (e) =>
+      forSite(e) &&
+      (e.type.startsWith("gate.") ||
+        e.type.startsWith("dock.") ||
+        e.type.startsWith("yard.") ||
+        e.type.startsWith("hu.") ||
+        e.type.startsWith("putaway.") ||
+        e.type === "pick.done" ||
+        e.type === "layout.saved" ||
+        e.type === "device.read"),
+  });
+  const stats = useApi<AnalyticsSummary>(`/analytics/summary${qs({ siteId, days: 1 })}`, {
+    live: (e) =>
+      forSite(e) &&
+      (e.type.startsWith("gate.") ||
+        e.type.startsWith("dock.") ||
+        e.type.startsWith("trip.") ||
+        e.type.startsWith("order.") ||
+        e.type.startsWith("hu.") ||
+        e.type.startsWith("putaway.") ||
+        e.type === "pick.done" ||
+        e.type === "device.read"),
+  });
+  const visits = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, open: "true" })}`, {
+    live: (e) =>
+      forSite(e) &&
+      (e.type.startsWith("gate.") || e.type.startsWith("dock.") || e.type.startsWith("yard.") || e.type === "device.read"),
+  });
+  const trips = useApi<Trip[]>(`/trips${qs({ siteId, active: "true" })}`, {
+    live: (e) => e.type.startsWith("trip.") || e.type === "gate.check_in" || e.type === "gate.check_out" || e.type === "device.read",
+  });
+  const events = useApi<EventRecord[]>(`/events${qs({ siteId, limit: 40 })}`, { live: forSite });
   const [selected, setSelected] = useState<{ cell: MapCell; locs: LocationStatus[] } | null>(null);
 
   const s = stats.data;

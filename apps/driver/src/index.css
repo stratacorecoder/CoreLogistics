@@ -3,7 +3,7 @@
 @import "../../../packages/ui/src/theme.css";
 
 /* Mobile-first: one column, thumb-sized buttons. */
-.drv { max-width: 560px; width: 100%; margin: 0 auto; padding: 14px; display: grid; gap: 12px; align-content: start; overflow: auto; }
+.drv { max-width: 560px; width: 100%; min-width: 0; margin: 0 auto; padding: 14px; display: grid; gap: 12px; align-content: start; overflow-x: hidden; overflow-y: auto; }
 .drv .btn { min-height: 48px; font-size: 15px; }
 .drv .btn-sm { min-height: 36px; font-size: 13px; }
 .drv .input,
@@ -41,4 +41,18 @@
   .theme-floor .live-dot,
   .theme-floor .clock { display: none; }
   .theme-floor .topbar { padding: 8px 12px; }
+}
+
+@media (max-width: 640px) {
+  .drv {
+    padding: 8px 6px 18px;
+  }
+  .drv > *,
+  .drv .panel,
+  .drv canvas,
+  .drv input,
+  .drv textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
 }

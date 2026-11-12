@@ -1,14 +1,16 @@
 import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import Fastify, { type FastifyError } from "fastify";
+import type { SessionUser } from "@corelogistics/contracts";
+import Fastify, { type FastifyError, type FastifyRequest } from "fastify";
 import {
   jsonSchemaTransform,
   serializerCompiler,
   validatorCompiler,
 } from "fastify-type-provider-zod";
+import { one } from "./db.js";
 import { forbidden, HttpError, unauthorized } from "./errors.js";
-import { sessionUser, tokenOf } from "./modules/auth/service.js";
+import { authTokenOf, sessionUser } from "./modules/auth/service.js";
 import analyticsRoutes from "./modules/analytics/routes.js";
 import authRoutes from "./modules/auth/routes.js";
 import { copilotRoutes } from "./modules/copilot/routes.js";
@@ -38,16 +40,126 @@ function validationMessage(err: FastifyError): string {
   return parts.length ? `${err.validationContext ?? "request"} ${parts.join("; ")}` : err.message;
 }
 
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5180",
+  "http://localhost:5181",
+  "http://localhost:5182",
+  "http://localhost:5183",
+  "http://127.0.0.1:5180",
+  "http://127.0.0.1:5181",
+  "http://127.0.0.1:5182",
+  "http://127.0.0.1:5183",
+];
+
+const DRIVER_TRIP_ACTION_RE = /^\/trips\/([^/]+)\/(?:depart|arrive|complete|issues|stops\/[^/]+\/(?:arrive|depart))$/;
+
+export function allowedOrigin(origin?: string): string | undefined {
+  if (!origin) return undefined;
+  const trimmed = origin.trim();
+  if (!trimmed) return undefined;
+  const allowlist = new Set(DEFAULT_ALLOWED_ORIGINS);
+  const extra = process.env.CORELOGISTICS_CORS_ORIGINS ?? "";
+  for (const item of extra.split(",")) {
+    const candidate = item.trim();
+    if (!candidate) continue;
+    try {
+      allowlist.add(new URL(candidate).origin);
+    } catch {
+      // Ignore malformed env origin entries rather than broadening matching
+    }
+  }
+  return allowlist.has(trimmed) ? trimmed : undefined;
+}
+
+function requestOrigin(req: FastifyRequest): string | undefined {
+  const trustProxy = process.env.CORELOGISTICS_TRUST_PROXY === "1";
+  const forwardedHost =
+    trustProxy && typeof req.headers["x-forwarded-host"] === "string"
+      ? req.headers["x-forwarded-host"].split(",")[0]?.trim()
+      : undefined;
+  const host = forwardedHost || (typeof req.headers.host === "string" ? req.headers.host.trim() : "");
+  if (!host) return undefined;
+  try {
+    return new URL(`${req.protocol}://${host}`).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+export function originAllowedForRequest(candidate: string, req: FastifyRequest): boolean {
+  return Boolean(allowedOrigin(candidate) || (candidate && candidate === requestOrigin(req)));
+}
+
+function csrfOriginAllowed(req: FastifyRequest): boolean {
+  if (typeof req.headers.origin === "string") {
+    return originAllowedForRequest(req.headers.origin.trim(), req);
+  }
+  if (typeof req.headers.referer === "string") {
+    try {
+      return originAllowedForRequest(new URL(req.headers.referer).origin, req);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function safeDecodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function authorizeWrite(method: string, path: string, user: SessionUser) {
+  if (user.role === "tower") return;
+
+  if (path === "/gate" || path.startsWith("/gate/")) {
+    if (user.role !== "gate") throw forbidden("Gate operator or planner role required");
+    return;
+  }
+
+  if (path.startsWith("/warehouse/") || path.startsWith("/outbound/")) {
+    if (user.role !== "warehouse") throw forbidden("Warehouse operator or planner role required");
+    return;
+  }
+
+  if (method === "POST") {
+    const tripMatch = DRIVER_TRIP_ACTION_RE.exec(path);
+    if (tripMatch) {
+      if (user.role !== "driver") throw forbidden("Assigned driver or planner role required");
+      if (!user.driverId) throw forbidden("Account is not linked to a driver profile");
+      const tripId = safeDecodeSegment(tripMatch[1]!);
+      const trip = one<{ driver_id: string | null }>("SELECT driver_id FROM trips WHERE id = ?", [tripId]);
+      if (trip && trip.driver_id !== user.driverId) {
+        throw forbidden("You may only update trips assigned to you");
+      }
+      return;
+    }
+  }
+
+  throw forbidden("Control Tower planner role required");
+}
+
 export async function buildApp(opts: { logger?: boolean } = {}) {
+  const trustProxy = process.env.CORELOGISTICS_TRUST_PROXY === "1";
   const app = Fastify({
     logger: opts.logger ? { level: process.env.LOG_LEVEL ?? "info" } : false,
+    trustProxy,
   });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(cors, {
-    origin: true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, false);
+      const match = allowedOrigin(origin);
+      cb(null, match ?? false);
+    },
+    credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-session", "x-actor", "x-device-key"],
   });
   await app.register(swagger, {
     openapi: {
@@ -95,53 +207,43 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
 
   app.addHook("onRequest", async (req) => {
     if (req.method === "OPTIONS") return;
-    if (process.env.CORELOGISTICS_AUTH_DISABLED === "1") return;
+    if (process.env.NODE_ENV !== "production" && process.env.CORELOGISTICS_AUTH_DISABLED === "1") return;
     const path = req.url.split("?")[0]!;
     if (
       path === "/health" ||
-      path === "/stream" ||
       path === "/auth/login" ||
-      path === "/auth/logout" ||
-      path.startsWith("/docs") ||
+      path === "/docs" ||
+      path.startsWith("/docs/") ||
       path.startsWith("/ingest/")
     ) {
       return;
     }
 
-    // Devices are restricted to Control Tower planners across all HTTP methods
-    if (path.startsWith("/devices")) {
-      const user = sessionUser(tokenOf(req));
-      if (!user) throw unauthorized("Sign in required");
-      if (user.role !== "tower") throw forbidden("Control Tower planner role required");
-      return;
-    }
-
-    // Reference data & authenticated GET/HEAD endpoints
-    if (req.method === "GET" || req.method === "HEAD") {
-      if (path === "/sites" || path === "/vehicles" || path === "/drivers" || path === "/skus") {
-        return;
+    const auth = authTokenOf(req);
+    if (path === "/auth/logout") {
+      if (auth.via === "cookie" && sessionUser(auth.token) && !csrfOriginAllowed(req)) {
+        throw forbidden("Cross-site request blocked");
       }
-      const user = sessionUser(tokenOf(req));
-      if (!user) throw unauthorized("Sign in required");
       return;
     }
 
-    const user = sessionUser(tokenOf(req));
+    const user = sessionUser(auth.token);
     if (!user) throw unauthorized("Sign in required");
 
-    // Administrative access control
-    if (
-      (path.startsWith("/sites/") && path.endsWith("/layout") && req.method === "PUT") ||
-      (path === "/sites" && req.method === "POST") ||
-      (path === "/copilot/config" && req.method === "POST") ||
-      (path.startsWith("/copilot/recommendations/") &&
-        (path.endsWith("/apply") || path.endsWith("/dismiss")) &&
-        req.method === "POST")
-    ) {
-      if (user.role !== "tower") {
-        throw forbidden("Control Tower planner role required");
-      }
+    // Devices are restricted to Control Tower planners across all HTTP methods
+    if (path === "/devices" || path.startsWith("/devices/")) {
+      if (user.role !== "tower") throw forbidden("Control Tower planner role required");
     }
+
+    if (req.method === "GET" || req.method === "HEAD") {
+      return;
+    }
+
+    if (auth.via === "cookie" && !csrfOriginAllowed(req)) {
+      throw forbidden("Cross-site request blocked");
+    }
+
+    authorizeWrite(req.method, path, user);
   });
 
   await app.register(authRoutes);

@@ -2,6 +2,7 @@ import { formatDuration, humanize, ISSUE_KINDS, type Driver, type EventRecord, t
 import {
   api,
   Empty,
+  ErrorNote,
   EventFeed,
   Field,
   fmtDateTime,
@@ -25,7 +26,7 @@ import { useEffect, useRef, useState } from "react";
 
 export default function App() {
   const { user, ready, signIn, signOut } = useAuth("driver");
-  const refs = useRefs();
+  const refs = useRefs(Boolean(user));
   const driver = user?.driverId ? refs.drivers?.find((d) => d.id === user.driverId) ?? null : null;
 
   useEffect(() => {
@@ -56,8 +57,12 @@ export default function App() {
 
 function DriverHome({ driver, refs }: { driver: Driver; refs: Refs }) {
   const now = useNow(30_000);
-  const active = useApi<Trip[]>(`/trips${qs({ driverId: driver.id, active: "true" })}`);
-  const done = useApi<Trip[]>(`/trips${qs({ driverId: driver.id, status: "completed", limit: 5 })}`);
+  const driverTripEvent = (e: EventRecord) =>
+    e.type.startsWith("trip.") || e.type === "gate.check_in" || e.type === "gate.check_out" || e.type.startsWith("dock.") || e.type === "device.read";
+  const active = useApi<Trip[]>(`/trips${qs({ driverId: driver.id, active: "true" })}`, { live: driverTripEvent });
+  const done = useApi<Trip[]>(`/trips${qs({ driverId: driver.id, status: "completed", limit: 5 })}`, {
+    live: (e) => e.type === "trip.completed",
+  });
   const list = [...(active.data ?? [])].sort((a, b) => rank(a) - rank(b) || Date.parse(a.plannedDeparture) - Date.parse(b.plannedDeparture));
   const current = list[0];
   const later = list.slice(1);
@@ -68,6 +73,7 @@ function DriverHome({ driver, refs }: { driver: Driver; refs: Refs }) {
         <span className="drv-hello">Hi, {driver.name.split(" ")[0]}</span>
         <Pill value={driver.status} />
       </div>
+      <ErrorNote error={active.error || done.error} />
       {current ? <CurrentTrip key={current.id} trip={current} refs={refs} now={now} /> : <Panel title="No active trip"><Empty>Nothing assigned right now. Dispatch will send your next run here.</Empty></Panel>}
       {later.length ? (
         <Panel title="Up next">

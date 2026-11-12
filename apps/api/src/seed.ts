@@ -160,7 +160,10 @@ const STAFF = ["Ana Reyes", "Ben Cruz", "Carla Santos", "Dan Lim", "Eli Tan"];
 
 export function seedIfEmpty(): boolean {
   if (one("SELECT 1 FROM sites LIMIT 1")) return false;
-  tx(() => seed());
+  tx(() => {
+    seed();
+    ensureDemoUsers();
+  });
   return true;
 }
 

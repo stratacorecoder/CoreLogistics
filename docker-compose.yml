@@ -3,14 +3,50 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api
     container_name: corelogistics-api
     restart: unless-stopped
     ports:
-      - "3100:3100"
+      - "${CORELOGISTICS_API_PORT:-3100}:3100"
     environment:
       - PORT=3100
-      - LOG_LEVEL=info
+      - LOG_LEVEL=${LOG_LEVEL:-info}
       - CORELOGISTICS_DATA_DIR=/app/data
-      - CORELOGISTICS_DB=corelogistics.db
+      - CORELOGISTICS_DB=${CORELOGISTICS_DB:-corelogistics.db}
+      - CORELOGISTICS_TRUST_PROXY=1
+      - CORELOGISTICS_CORS_ORIGINS=${CORELOGISTICS_CORS_ORIGINS:-}
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3100/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    container_name: corelogistics-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${CORELOGISTICS_HTTP_PORT:-8080}:80"
+      - "${CORELOGISTICS_HTTPS_PORT:-8443}:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

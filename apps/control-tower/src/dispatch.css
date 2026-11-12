@@ -133,12 +133,22 @@
 
 .dispatch-spacer { flex: 1; }
 
+.pipeline-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 /* Connected Pipeline Track Header ------------------------------------------ */
 
 .pipeline-track-header {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
+  min-width: 1020px;
   padding: 10px 14px;
   background: var(--glass-solid);
   border: 1px solid var(--glass-border);
@@ -146,6 +156,7 @@
   box-shadow: var(--glass-shadow);
   margin-bottom: 12px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .pipeline-header-stage {
@@ -220,19 +231,68 @@
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
+  min-width: 1020px;
   flex: 1;
   min-height: 0;
-  overflow-x: auto;
+  overflow-x: visible;
   overflow-y: hidden;
   padding-bottom: 8px;
 }
 
+.pipeline-mobile-head {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: var(--glass-solid);
+  box-shadow: var(--card-shadow);
+}
+
+.pipeline-mobile-head .stage-icon { color: var(--muted); }
+.pipeline-mobile-head.stage-planned .stage-icon { color: var(--info); }
+.pipeline-mobile-head.stage-dispatched .stage-icon { color: var(--accent); }
+.pipeline-mobile-head.stage-in_transit .stage-icon { color: var(--warn); }
+.pipeline-mobile-head.stage-arrived .stage-icon { color: var(--ok); }
+.pipeline-mobile-head.stage-completed .stage-icon { color: var(--text-muted); }
+
 @media (max-width: 1100px) {
-  .pipeline-track-header,
+  .dispatch-page {
+    overflow: auto;
+  }
+  .dispatch-search-box {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 220px;
+  }
+  .pipeline-scroll {
+    flex: none;
+    overflow: visible;
+  }
+  .pipeline-track-header {
+    display: none;
+  }
+  .pipeline-mobile-head {
+    display: flex;
+  }
   .pipeline-board-grid {
     grid-template-columns: 1fr;
-    overflow-x: hidden;
-    overflow-y: auto;
+    min-width: 0;
+    overflow: visible;
+    flex: none;
+  }
+  .pipeline-stage-column {
+    height: auto;
+  }
+  .pipeline-column-cards {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .pipeline-flow-arrow {
+    display: none;
   }
 }
 

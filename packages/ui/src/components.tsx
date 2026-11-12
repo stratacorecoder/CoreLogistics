@@ -277,12 +277,10 @@ export function Shell({
   const brand = (
     <div className={nav ? "brand side-brand" : "brand"}>
       <span className="brand-mark">{mark}</span>
-      {!navCollapsed ? (
-        <div>
-          <p className="brand-name">{title}</p>
-          <p className="brand-role">{role}</p>
-        </div>
-      ) : null}
+      <div className="brand-copy">
+        <p className="brand-name">{title}</p>
+        <p className="brand-role">{role}</p>
+      </div>
     </div>
   );
   return (
@@ -316,7 +314,7 @@ export function Shell({
                   title={navCollapsed ? item.label : undefined}
                 >
                   {Icon ? <Icon className="nav-item-icon" /> : null}
-                  {!navCollapsed ? <span>{item.label}</span> : null}
+                  <span className="nav-item-label">{item.label}</span>
                 </button>
               );
             })}
@@ -326,12 +324,10 @@ export function Shell({
             <div className="nav-footer">
               <div className="nav-user-info" title={navCollapsed ? `${actorName} (${role})` : undefined}>
                 <div className="nav-user-avatar">{initials}</div>
-                {!navCollapsed ? (
-                  <div className="nav-user-meta">
-                    <span className="nav-user-name">{actorName}</span>
-                    <span className="nav-user-role">{role}</span>
-                  </div>
-                ) : null}
+                <div className="nav-user-meta">
+                  <span className="nav-user-name">{actorName}</span>
+                  <span className="nav-user-role">{role}</span>
+                </div>
               </div>
               <button
                 className="nav-logout-btn"
@@ -371,14 +367,7 @@ export function Shell({
   );
 }
 
-export const APP_ROLES = [
-  { id: "tower", port: 5180, mark: "CT", title: "Control Tower", detail: "Dispatch, fleet, and the live site map" },
-  { id: "gate", port: 5181, mark: "GT", title: "Gate & Yard", detail: "Check trucks in, assign a yard slot and a dock" },
-  { id: "warehouse", port: 5182, mark: "WH", title: "Warehouse floor", detail: "Receive, sort, pick, and load" },
-  { id: "driver", port: 5183, mark: "DR", title: "Driver", detail: "Your trip, stops, and arrival" },
-] as const;
-
-export type AppRoleId = (typeof APP_ROLES)[number]["id"];
+export type AppRoleId = "tower" | "gate" | "warehouse" | "driver";
 
 export function LoginPage({ onSubmit }: { onSubmit: (username: string, password: string) => Promise<void> }) {
   return <SignIn2 onSubmit={onSubmit} />;
@@ -407,7 +396,7 @@ export function EventFeed({ events, empty = "No events yet" }: { events: EventRe
         <li key={e.id}>
           <span className="event-time">{fmtDateTime(e.occurredAt)}</span>
           <span className="event-src" title={e.source}>
-            <span className="event-src">{SOURCE_LABEL[e.source] ?? e.source}</span>
+            {SOURCE_LABEL[e.source] ?? e.source}
           </span>
           <span className="event-msg">
             {e.message}

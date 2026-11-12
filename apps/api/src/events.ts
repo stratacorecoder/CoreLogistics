@@ -12,13 +12,21 @@ export interface Ctx {
 
 export const systemCtx: Ctx = { source: "system", actor: null };
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function ctxOf(req: FastifyRequest): Ctx {
   const signed = sessionUser(tokenOf(req));
   if (signed) return { source: "manual", actor: signed.name };
   const actor = req.headers["x-actor"];
   return {
     source: "manual",
-    actor: typeof actor === "string" && actor.trim() ? decodeURIComponent(actor.trim()).slice(0, 64) : null,
+    actor: typeof actor === "string" && actor.trim() ? safeDecode(actor.trim()).slice(0, 64) : null,
   };
 }
 

@@ -1,10 +1,14 @@
 import { ZONE_META, type LocationStatus, type PutawayTask, type SiteBoard } from "@corelogistics/contracts";
-import { api, Empty, fromNow, MapLegend, Panel, qs, ScanButton, SiteMap, useAction, useApi } from "@corelogistics/ui";
-import { useEffect, useMemo, useState } from "react";
+import { api, Empty, ErrorNote, fromNow, MapLegend, Panel, qs, ScanButton, SiteMap, useAction, useApi } from "@corelogistics/ui";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 export function PutawayView({ siteId }: { siteId: string }) {
-  const tasks = useApi<PutawayTask[]>(`/warehouse/putaway${qs({ siteId, status: "open" })}`);
-  const board = useApi<SiteBoard>(`/sites/${siteId}/board`);
+  const tasks = useApi<PutawayTask[]>(`/warehouse/putaway${qs({ siteId, status: "open" })}`, {
+    live: (e) => e.type.startsWith("putaway.") || e.type === "hu.sorted",
+  });
+  const board = useApi<SiteBoard>(`/sites/${siteId}/board`, {
+    live: (e) => e.type.startsWith("putaway.") || e.type.startsWith("hu.") || e.type === "layout.saved",
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [override, setOverride] = useState<LocationStatus | null>(null);
   const [rack, setRack] = useState<LocationStatus[] | null>(null);
@@ -23,8 +27,9 @@ export function PutawayView({ siteId }: { siteId: string }) {
   const highlight = useMemo(() => [target, task?.fromLocationId].filter((x): x is string => Boolean(x)), [target, task]);
 
   return (
-    <div className="three" style={{ gridTemplateColumns: "320px minmax(0, 1fr) 340px" }}>
+    <div className="three" style={{ "--three-cols": "320px minmax(0, 1fr) 340px" } as CSSProperties}>
       <Panel title={`Open tasks (${tasks.data?.length ?? 0})`} scroll>
+        <ErrorNote error={tasks.error} />
         {tasks.data?.length ? (
           <div className="list">
             {tasks.data.map((t) => (
@@ -49,8 +54,9 @@ export function PutawayView({ siteId }: { siteId: string }) {
       </Panel>
 
       <Panel title="Floor map" actions={<MapLegend kinds={["sort_lane", "staging", "rack", "dock_door"]} />}>
+        <ErrorNote error={board.error} />
         {board.data ? (
-          <div className="map-wrap" style={{ maxHeight: "calc(100vh - 150px)" }}>
+          <div className="map-wrap wh-map-wrap">
             <SiteMap
               layout={board.data.layout}
               locations={board.data.locations}

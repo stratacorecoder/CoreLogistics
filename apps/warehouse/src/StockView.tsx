@@ -1,10 +1,14 @@
 import { ZONE_META, type HandlingUnit, type InventoryRow, type SiteBoard } from "@corelogistics/contracts";
-import { api, Empty, MapLegend, Panel, Pill, qs, ScanButton, SiteMap, useApi } from "@corelogistics/ui";
-import { useMemo, useState } from "react";
+import { api, Empty, ErrorNote, MapLegend, Panel, Pill, qs, ScanButton, SiteMap, useApi } from "@corelogistics/ui";
+import { useMemo, useState, type CSSProperties } from "react";
 
 export function StockView({ siteId }: { siteId: string }) {
-  const inventory = useApi<InventoryRow[]>(`/warehouse/inventory${qs({ siteId })}`);
-  const board = useApi<SiteBoard>(`/sites/${siteId}/board`);
+  const inventory = useApi<InventoryRow[]>(`/warehouse/inventory${qs({ siteId })}`, {
+    live: (e) => e.type.startsWith("hu.") || e.type.startsWith("putaway.") || e.type === "pick.done",
+  });
+  const board = useApi<SiteBoard>(`/sites/${siteId}/board`, {
+    live: (e) => e.type.startsWith("hu.") || e.type.startsWith("putaway.") || e.type === "pick.done" || e.type === "layout.saved",
+  });
   const [filter, setFilter] = useState("");
   const [scan, setScan] = useState("");
   const [found, setFound] = useState<HandlingUnit | null>(null);
@@ -26,7 +30,7 @@ export function StockView({ siteId }: { siteId: string }) {
   const highlight = useMemo(() => (f ? rows.map((r) => r.locationId) : found?.locationId ? [found.locationId] : []), [f, rows, found]);
 
   return (
-    <div className="three" style={{ gridTemplateColumns: "360px minmax(0, 1fr) 380px" }}>
+    <div className="three" style={{ "--three-cols": "360px minmax(0, 1fr) 380px" } as CSSProperties}>
       <div className="stack">
         <Panel title="Find a unit">
           <form
@@ -96,27 +100,31 @@ export function StockView({ siteId }: { siteId: string }) {
           ) : null}
         </Panel>
         <Panel title="Stock by SKU" scroll className="grow">
-          <table className="table">
-            <tbody>
-              {totals.map((t) => (
-                <tr key={t.skuCode} className="is-clickable" onClick={() => setFilter(t.skuCode)}>
-                  <td>
-                    {t.zone ? <span className="zone-dot" style={{ background: ZONE_META[t.zone].color }} /> : null}
-                    <span className="strong">{t.skuCode}</span>
-                    <div className="muted small">{t.skuName}</div>
-                  </td>
-                  <td className="right strong">{t.qty}</td>
-                  <td className="right muted small">{t.bins} {t.bins === 1 ? "bin" : "bins"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ErrorNote error={inventory.error} />
+          <div className="table-wrap">
+            <table className="table">
+              <tbody>
+                {totals.map((t) => (
+                  <tr key={t.skuCode} className="is-clickable" onClick={() => setFilter(t.skuCode)}>
+                    <td>
+                      {t.zone ? <span className="zone-dot" style={{ background: ZONE_META[t.zone].color }} /> : null}
+                      <span className="strong">{t.skuCode}</span>
+                      <div className="muted small">{t.skuName}</div>
+                    </td>
+                    <td className="right strong">{t.qty}</td>
+                    <td className="right muted small">{t.bins} {t.bins === 1 ? "bin" : "bins"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Panel>
       </div>
 
       <Panel title="Occupancy" actions={<MapLegend kinds={["sort_lane", "staging", "rack"]} />}>
+        <ErrorNote error={board.error} />
         {board.data ? (
-          <div className="map-wrap" style={{ maxHeight: "calc(100vh - 150px)" }}>
+          <div className="map-wrap wh-map-wrap">
             <SiteMap
               layout={board.data.layout}
               locations={board.data.locations}
@@ -139,34 +147,36 @@ export function StockView({ siteId }: { siteId: string }) {
         }
       >
         {rows.length ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Bin</th>
-                <th>SKU</th>
-                <th className="right">Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={`${r.locationId}-${r.skuId}`}>
-                  <td className="mono strong">{r.locationCode}</td>
-                  <td>
-                    {r.skuCode} <span className="muted small">{r.skuName}</span>
-                    {r.earliestExpiry ? (
-                      <div className="muted small">Exp: {r.earliestExpiry}</div>
-                    ) : null}
-                  </td>
-                  <td className="right">
-                    <span>{r.qty}</span>
-                    {r.expiredQty ? (
-                      <div className="pill tone-bad" style={{ fontSize: 10, marginTop: 2, display: "inline-block" }}>{r.expiredQty} exp</div>
-                    ) : null}
-                  </td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Bin</th>
+                  <th>SKU</th>
+                  <th className="right">Qty</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={`${r.locationId}-${r.skuId}`}>
+                    <td className="mono strong">{r.locationCode}</td>
+                    <td>
+                      {r.skuCode} <span className="muted small">{r.skuName}</span>
+                      {r.earliestExpiry ? (
+                        <div className="muted small">Exp: {r.earliestExpiry}</div>
+                      ) : null}
+                    </td>
+                    <td className="right">
+                      <span>{r.qty}</span>
+                      {r.expiredQty ? (
+                        <div className="pill tone-bad" style={{ fontSize: 10, marginTop: 2, display: "inline-block" }}>{r.expiredQty} exp</div>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <Empty>No stock matches</Empty>
         )}

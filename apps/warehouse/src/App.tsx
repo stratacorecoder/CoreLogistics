@@ -1,27 +1,36 @@
 import type { Order, PutawayTask, Receipt, Shipment } from "@corelogistics/contracts";
-import { ActorBadge, LoginPage, qs, Shell, SitePicker, useApi, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
-import { useCallback, type ReactNode } from "react";
-import { PickView } from "./PickView";
-import RubberSegment from "./RubberSegment";
-import { PutawayView } from "./PutawayView";
+import { ActorBadge, Empty, LoginPage, qs, Shell, SitePicker, Tabs, useApi, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
+import { lazy, Suspense, useCallback } from "react";
 import { ReceiveView } from "./ReceiveView";
-import { ShipView } from "./ShipView";
-import { SortView } from "./SortView";
-import { StockView } from "./StockView";
+
+const SortView = lazy(() => import("./SortView").then((m) => ({ default: m.SortView })));
+const PutawayView = lazy(() => import("./PutawayView").then((m) => ({ default: m.PutawayView })));
+const PickView = lazy(() => import("./PickView").then((m) => ({ default: m.PickView })));
+const ShipView = lazy(() => import("./ShipView").then((m) => ({ default: m.ShipView })));
+const StockView = lazy(() => import("./StockView").then((m) => ({ default: m.StockView })));
 
 type View = "receive" | "sort" | "putaway" | "pick" | "ship" | "stock";
 
 export default function App() {
   const { user, ready, signIn, signOut } = useAuth("warehouse");
-  const refs = useRefs();
+  const refs = useRefs(Boolean(user));
   const [view, setView] = useLocalState<View>("wh.view", "receive");
   const [siteId, setSiteIdRaw] = useLocalState<string | null>("wh.site", null);
   const setSiteId = useCallback((id: string) => setSiteIdRaw(id), [setSiteIdRaw]);
 
-  const receipts = useApi<Receipt[]>(siteId ? `/warehouse/receipts${qs({ siteId, status: "open" })}` : null);
-  const putaway = useApi<PutawayTask[]>(siteId ? `/warehouse/putaway${qs({ siteId, status: "open" })}` : null);
-  const orders = useApi<Order[]>(siteId ? `/outbound/orders${qs({ siteId, status: "open,picking,picked" })}` : null);
-  const shipments = useApi<Shipment[]>(siteId ? `/outbound/shipments${qs({ siteId, status: "planning,loading,loaded" })}` : null);
+  const activeSite = user && siteId ? siteId : null;
+  const receipts = useApi<Receipt[]>(activeSite ? `/warehouse/receipts${qs({ siteId: activeSite, status: "open" })}` : null, {
+    live: (e) => e.type.startsWith("receipt.") || e.type === "hu.received" || e.type === "dock.assigned",
+  });
+  const putaway = useApi<PutawayTask[]>(activeSite ? `/warehouse/putaway${qs({ siteId: activeSite, status: "open" })}` : null, {
+    live: (e) => e.type.startsWith("putaway.") || e.type === "hu.sorted",
+  });
+  const orders = useApi<Order[]>(activeSite ? `/outbound/orders${qs({ siteId: activeSite, status: "open,picking,picked" })}` : null, {
+    live: (e) => e.type.startsWith("order.") || e.type === "pick.done",
+  });
+  const shipments = useApi<Shipment[]>(activeSite ? `/outbound/shipments${qs({ siteId: activeSite, status: "planning,loading,loaded" })}` : null, {
+    live: (e) => e.type.startsWith("shipment.") || e.type === "hu.loaded" || e.type === "dock.assigned",
+  });
 
   if (!ready) return null;
   if (!user) return <LoginPage onSubmit={signIn} />;
@@ -34,27 +43,17 @@ export default function App() {
       tone="floor"
       onSwitchRole={() => void signOut()}
       center={
-        <RubberSegment
-          items={[
-            { value: "receive", label: tabLabel("Receive", receipts.data?.length) },
-            { value: "sort", label: "Sort" },
-            { value: "putaway", label: tabLabel("Putaway", putaway.data?.length) },
-            { value: "pick", label: tabLabel("Pick & stage", orders.data?.length) },
-            { value: "ship", label: tabLabel("Load", shipments.data?.length) },
-            { value: "stock", label: "Stock" },
-          ]}
+        <Tabs<View>
           value={view}
-          onChange={(next) => setView(next as View)}
-          size="lg"
-          radius={8}
-          inset={3}
-          equalSlots={false}
-          stretch={100}
-          squash={3}
-          speed={1}
-          glide={75}
-          draggable
-          aria-label="Warehouse floor"
+          onChange={setView}
+          options={[
+            { id: "receive", label: "Receive", badge: receipts.data?.length },
+            { id: "sort", label: "Sort" },
+            { id: "putaway", label: "Putaway", badge: putaway.data?.length },
+            { id: "pick", label: "Pick & stage", badge: orders.data?.length },
+            { id: "ship", label: "Load", badge: shipments.data?.length },
+            { id: "stock", label: "Stock" },
+          ]}
         />
       }
       right={
@@ -66,24 +65,16 @@ export default function App() {
     >
       {siteId ? (
         <div className="wh" style={{ display: "contents" }}>
-          {view === "receive" ? <ReceiveView siteId={siteId} refs={refs} onSort={() => setView("sort")} /> : null}
-          {view === "sort" ? <SortView siteId={siteId} refs={refs} onPutaway={() => setView("putaway")} /> : null}
-          {view === "putaway" ? <PutawayView siteId={siteId} /> : null}
-          {view === "pick" ? <PickView siteId={siteId} refs={refs} /> : null}
-          {view === "ship" ? <ShipView siteId={siteId} refs={refs} /> : null}
-          {view === "stock" ? <StockView siteId={siteId} /> : null}
+          <Suspense fallback={<div className="page"><Empty>Loading…</Empty></div>}>
+            {view === "receive" ? <ReceiveView siteId={siteId} refs={refs} onSort={() => setView("sort")} /> : null}
+            {view === "sort" ? <SortView siteId={siteId} refs={refs} onPutaway={() => setView("putaway")} /> : null}
+            {view === "putaway" ? <PutawayView siteId={siteId} /> : null}
+            {view === "pick" ? <PickView siteId={siteId} refs={refs} /> : null}
+            {view === "ship" ? <ShipView siteId={siteId} refs={refs} /> : null}
+            {view === "stock" ? <StockView siteId={siteId} /> : null}
+          </Suspense>
         </div>
       ) : null}
     </Shell>
-  );
-}
-
-function tabLabel(label: string, badge?: number): ReactNode {
-  return badge ? (
-    <>
-      {label} <span className="tab-badge">{badge}</span>
-    </>
-  ) : (
-    label
   );
 }

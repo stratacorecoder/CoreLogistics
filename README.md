@@ -25,6 +25,24 @@ npm run db:reset   # wipe and reseed the demo data (API stopped)
 
 The database lives at `apps/api/data/corelogistics.db` and is seeded with a week of history on first start. See `.env.example` for the port, database and API URL overrides.
 
+### Run full stack with Docker Compose
+
+For LAN access or phone/tablet camera barcode scanning over HTTPS (`getUserMedia` requires a secure origin outside `localhost`), run the Caddy reverse proxy + API stack:
+
+```bash
+docker compose up --build -d
+```
+
+| Service / Path | Default URL |
+| --- | --- |
+| Control Tower | `http://localhost:8080/` (or `https://<host-or-ip>:8443/`) |
+| Gate & Yard | `/gate/` |
+| Warehouse floor | `/warehouse/` |
+| Driver | `/driver/` |
+| API & SSE | `/api/` |
+
+HTTPS on `:8443` uses Caddy's internal CA (`tls internal`) so LAN devices work with one self-hosted stack; stop `npm run dev` first or override `CORELOGISTICS_API_PORT` if port `3100` is already in use.
+
 ## Apps
 
 - **Control Tower** (planners): live site map, dispatch board, fleet, drivers, maintenance, device registry, site layout designer, analytics.

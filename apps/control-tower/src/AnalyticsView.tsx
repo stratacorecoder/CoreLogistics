@@ -1,6 +1,6 @@
 import { formatDuration, humanize, ZONE_META, type AnalyticsSummary } from "@corelogistics/contracts";
 import { ErrorNote, Kpi, Panel, Progress, useApi, type Refs } from "@corelogistics/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 function useChartTheme() {
@@ -54,7 +54,7 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
 
   return (
     <div className="page stack">
-      <div className="row-between">
+      <div className="row-between" style={{ flexWrap: "wrap" }}>
         <div className="row">
           <select className="select" value={scope} onChange={(e) => setScope(e.target.value as "site" | "network")}>
             <option value="site">{refs.siteName(siteId)}</option>
@@ -82,7 +82,10 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
             <Kpi label="Fleet available" value={`${data.fleet.byStatus.available ?? 0} / ${data.fleet.total}`} tone={(data.fleet.byStatus.maintenance ?? 0) > 0 ? "warn" : undefined} hint={`${data.fleet.byStatus.maintenance ?? 0} in maintenance`} />
           </div>
 
-          <div className="split" style={{ padding: 0, overflow: "visible", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)" }}>
+          <div
+            className="split"
+            style={{ padding: 0, overflow: "visible", "--split-cols": "minmax(0, 2fr) minmax(0, 1fr)" } as CSSProperties}
+          >
             <Panel title="Daily throughput (handling units)">
               <div className="chart">
                 <ResponsiveContainer width="100%" height={260}>
@@ -117,34 +120,36 @@ export function AnalyticsView({ siteId, refs }: { siteId: string; refs: Refs }) 
 
           <div className="three" style={{ padding: 0 }}>
             <Panel title="Dock doors">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Door</th>
-                    <th className="right">Turns</th>
-                    <th className="right">Busy</th>
-                    <th style={{ width: "40%" }}>Utilization</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.docks.map((d) => (
-                    <tr key={d.locationId}>
-                      <td className="strong">
-                        {scope === "network" ? `${refs.siteCode(d.siteId)} ` : ""}
-                        {d.code}
-                      </td>
-                      <td className="right">{d.assignments}</td>
-                      <td className="right">{formatDuration(d.busyMinutes)}</td>
-                      <td>
-                        <div className="row">
-                          <Progress value={d.utilizationPct} max={100} tone={d.utilizationPct > 85 ? "danger" : d.utilizationPct > 60 ? "warn" : "ok"} />
-                          <span className="small muted">{Math.round(d.utilizationPct)}%</span>
-                        </div>
-                      </td>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Door</th>
+                      <th className="right">Turns</th>
+                      <th className="right">Busy</th>
+                      <th style={{ width: "40%" }}>Utilization</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {data.docks.map((d) => (
+                      <tr key={d.locationId}>
+                        <td className="strong">
+                          {scope === "network" ? `${refs.siteCode(d.siteId)} ` : ""}
+                          {d.code}
+                        </td>
+                        <td className="right">{d.assignments}</td>
+                        <td className="right">{formatDuration(d.busyMinutes)}</td>
+                        <td>
+                          <div className="row">
+                            <Progress value={d.utilizationPct} max={100} tone={d.utilizationPct > 85 ? "danger" : d.utilizationPct > 60 ? "warn" : "ok"} />
+                            <span className="small muted">{Math.round(d.utilizationPct)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </Panel>
             <Panel title="Storage by zone">
               <div className="stack">

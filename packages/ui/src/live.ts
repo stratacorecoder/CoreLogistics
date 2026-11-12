@@ -1,52 +1,55 @@
 import type { EventRecord } from "@corelogistics/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, API_URL } from "./api.js";
+import { createReloadScheduler, createSourceManager, type EventSourceLike } from "./live-controller.js";
 
 type Listener = (e: EventRecord) => void;
-const listeners = new Set<Listener>();
-const statusListeners = new Set<(online: boolean) => void>();
-let source: EventSource | null = null;
-let online = false;
 
-function setOnline(v: boolean) {
-  online = v;
-  for (const fn of statusListeners) fn(v);
+function openStream(): EventSourceLike | null {
+  if (typeof EventSource === "undefined") return null;
+  const es = new EventSource(`${API_URL}/stream`, { withCredentials: true });
+  return {
+    get onopen() {
+      return es.onopen as (() => void) | null;
+    },
+    set onopen(fn) {
+      es.onopen = fn;
+    },
+    get onerror() {
+      return es.onerror as (() => void) | null;
+    },
+    set onerror(fn) {
+      es.onerror = fn;
+    },
+    addEventListener(type, fn) {
+      es.addEventListener(type, (msg) => fn({ data: String((msg as MessageEvent).data ?? "") }));
+    },
+    close() {
+      es.close();
+    },
+  };
 }
 
-function ensureSource() {
-  if (source) return;
-  source = new EventSource(`${API_URL}/stream`);
-  source.onopen = () => setOnline(true);
-  source.onerror = () => setOnline(false);
-  source.addEventListener("event", (msg) => {
-    const e = JSON.parse((msg as MessageEvent).data) as EventRecord;
-    for (const fn of listeners) fn(e);
-  });
+const sourceManager = createSourceManager<EventRecord>(openStream);
+
+/** Closes the shared SSE connection (for example on sign-out). */
+export function closeSource() {
+  sourceManager.close();
 }
 
-/** Subscribes to the shared SSE connection for the lifetime of the component. */
-export function useLiveEvents(onEvent: Listener) {
+/** Subscribes to the shared SSE connection for the lifetime of the component while enabled. */
+export function useLiveEvents(onEvent: Listener, enabled = true) {
   const ref = useRef(onEvent);
   ref.current = onEvent;
   useEffect(() => {
-    ensureSource();
-    const fn: Listener = (e) => ref.current(e);
-    listeners.add(fn);
-    return () => {
-      listeners.delete(fn);
-    };
-  }, []);
+    if (!enabled) return;
+    return sourceManager.subscribeEvents((e) => ref.current(e));
+  }, [enabled]);
 }
 
 export function useStreamStatus(): boolean {
-  const [state, setState] = useState(online);
-  useEffect(() => {
-    ensureSource();
-    statusListeners.add(setState);
-    return () => {
-      statusListeners.delete(setState);
-    };
-  }, []);
+  const [state, setState] = useState(() => sourceManager.isOnline());
+  useEffect(() => sourceManager.subscribeStatus(setState), []);
   return state;
 }
 
@@ -57,11 +60,11 @@ export interface ApiState<T> {
   reload: () => void;
 }
 
-const reloaders = new Set<() => void>();
+const liveReloaders = new Set<() => void>();
 
-/** Refetch every mounted query. Used after the operator's own action. */
+/** Refetch mounted live queries via their coalesced schedulers. */
 export function refreshLiveQueries() {
-  for (const load of reloaders) load();
+  for (const schedule of liveReloaders) schedule();
 }
 
 /**
@@ -75,16 +78,18 @@ export function useApi<T>(
   const [data, setData] = useState<T>();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(path));
+  const pathRef = useRef(path);
+  pathRef.current = path;
   const seq = useRef(0);
   const hasData = useRef(false);
-  const queued = useRef(false);
 
   const load = useCallback(() => {
-    if (!path) return;
+    const target = pathRef.current;
+    if (!target) return Promise.resolve();
     const mine = ++seq.current;
     if (!hasData.current) setLoading(true);
-    api
-      .get<T>(path)
+    return api
+      .get<T>(target)
       .then((d) => {
         if (mine !== seq.current) return;
         hasData.current = true;
@@ -97,57 +102,67 @@ export function useApi<T>(
       .finally(() => {
         if (mine === seq.current) setLoading(false);
       });
-  }, [path]);
+  }, []);
+
+  const schedulerRef = useRef<ReturnType<typeof createReloadScheduler> | null>(null);
+  if (!schedulerRef.current) {
+    schedulerRef.current = createReloadScheduler(() => load());
+  }
+  const scheduler = schedulerRef.current;
 
   useEffect(() => {
+    seq.current += 1;
+    scheduler.reset();
     hasData.current = false;
     setData(undefined);
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    reloaders.add(load);
+    setError(null);
+    setLoading(Boolean(path));
+    if (path) scheduler.flushNow();
     return () => {
-      reloaders.delete(load);
+      seq.current += 1;
+      scheduler.reset();
     };
-  }, [load]);
-
-  useEffect(() => {
-    if (!opts.intervalMs) return;
-    const id = setInterval(load, opts.intervalMs);
-    return () => clearInterval(id);
-  }, [load, opts.intervalMs]);
+  }, [path, scheduler]);
 
   const live = opts.live ?? true;
   const liveRef = useRef(live);
   liveRef.current = live;
+  const followLive = Boolean(path) && live !== false;
 
-  const schedule = useCallback(() => {
-    if (queued.current) return;
-    queued.current = true;
-    queueMicrotask(() => {
-      queued.current = false;
-      load();
-    });
-  }, [load]);
+  useEffect(() => {
+    if (!followLive) return;
+    liveReloaders.add(scheduler.schedule);
+    return () => {
+      liveReloaders.delete(scheduler.schedule);
+    };
+  }, [followLive, scheduler]);
+
+  useEffect(() => {
+    if (!path || !opts.intervalMs) return;
+    const id = setInterval(scheduler.schedule, opts.intervalMs);
+    return () => clearInterval(id);
+  }, [path, opts.intervalMs, scheduler]);
 
   useLiveEvents((e) => {
     const current = liveRef.current;
     if (!current || (typeof current === "function" && !current(e))) return;
-    schedule();
-  });
+    scheduler.schedule();
+  }, followLive);
 
-  const followLive = live !== false;
   useEffect(() => {
     if (!followLive) return;
     const onShow = () => {
-      if (document.visibilityState === "visible") load();
+      if (document.visibilityState === "visible") scheduler.schedule();
     };
     document.addEventListener("visibilitychange", onShow);
     return () => document.removeEventListener("visibilitychange", onShow);
-  }, [load, followLive]);
+  }, [followLive, scheduler]);
 
-  return { data, error, loading, reload: load };
+  const reload = useCallback(() => {
+    if (pathRef.current) scheduler.flushNow();
+  }, [scheduler]);
+
+  return { data, error, loading, reload };
 }
 
 export function useNow(intervalMs = 30_000): number {

@@ -8,11 +8,13 @@ import {
   type SortResult,
   type SortRule,
 } from "@corelogistics/contracts";
-import { api, Empty, Field, Panel, Pill, qs, ScanButton, useAction, useApi, type Refs } from "@corelogistics/ui";
-import { useState } from "react";
+import { api, Empty, ErrorNote, Field, Panel, Pill, qs, ScanButton, useAction, useApi, type Refs } from "@corelogistics/ui";
+import { useState, type CSSProperties } from "react";
 
 export function SortView({ siteId, refs, onPutaway }: { siteId: string; refs: Refs; onPutaway: () => void }) {
-  const queue = useApi<HandlingUnit[]>(`/warehouse/hus${qs({ siteId, status: "received" })}`);
+  const queue = useApi<HandlingUnit[]>(`/warehouse/hus${qs({ siteId, status: "received" })}`, {
+    live: (e) => e.type === "hu.received" || e.type === "hu.sorted",
+  });
   const { busy, run } = useAction();
   const [scan, setScan] = useState("");
   const [result, setResult] = useState<SortResult | null>(null);
@@ -26,7 +28,7 @@ export function SortView({ siteId, refs, onPutaway }: { siteId: string; refs: Re
   };
 
   return (
-    <div className="three" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) 380px" }}>
+    <div className="three" style={{ "--three-cols": "minmax(0, 1fr) minmax(0, 1fr) 380px" } as CSSProperties}>
       <div className="stack">
         <Panel title="Scan to sort">
           <form
@@ -86,6 +88,7 @@ export function SortView({ siteId, refs, onPutaway }: { siteId: string; refs: Re
       </div>
 
       <Panel title={`Waiting to sort (${queue.data?.length ?? 0})`} scroll>
+        <ErrorNote error={queue.error} />
         {queue.data?.length ? (
           <div className="list">
             {queue.data.map((h) => (
@@ -119,7 +122,9 @@ export function SortView({ siteId, refs, onPutaway }: { siteId: string; refs: Re
 }
 
 function SortRules({ siteId, refs }: { siteId: string; refs: Refs }) {
-  const rules = useApi<SortRule[]>(`/warehouse/sort-rules${qs({ siteId })}`);
+  const rules = useApi<SortRule[]>(`/warehouse/sort-rules${qs({ siteId })}`, {
+    live: (e) => e.type.startsWith("sort"),
+  });
   const lanes = useApi<Location[]>(`/sites/${siteId}/locations${qs({ kind: "sort_lane" })}`, { live: false });
   const { busy, run } = useAction();
   const [matchKind, setMatchKind] = useState<SortMatchKind>("destination");

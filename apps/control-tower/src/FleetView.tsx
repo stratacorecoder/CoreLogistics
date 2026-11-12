@@ -19,6 +19,7 @@ import {
   api,
   API_URL,
   Empty,
+  ErrorNote,
   EventFeed,
   Field,
   fmtDateTime,
@@ -37,9 +38,12 @@ type Sub = "vehicles" | "drivers" | "maintenance" | "devices";
 
 export function FleetView({ refs }: { refs: Refs }) {
   const [sub, setSub] = useState<Sub>("vehicles");
-  const openMaint = useApi<MaintenanceRecord[]>("/maintenance?open=true");
+  const openMaint = useApi<MaintenanceRecord[]>("/maintenance?open=true", {
+    live: (e) => e.type.startsWith("maintenance."),
+  });
   return (
     <div className="page stack">
+      <ErrorNote error={openMaint.error} />
       <Tabs<Sub>
         value={sub}
         onChange={setSub}
@@ -65,38 +69,40 @@ function Vehicles({ refs }: { refs: Refs }) {
   return (
     <div className="split" style={{ padding: 0, overflow: "visible" }}>
       <Panel title="Fleet" actions={<button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>Add vehicle</button>}>
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Plate</th>
-              <th>Kind</th>
-              <th>Status</th>
-              <th>Where</th>
-              <th className="right">Capacity</th>
-              <th className="right">Odometer</th>
-              <th>Last GPS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(refs.vehicles ?? []).map((v) => (
-              <tr key={v.id} className={`is-clickable${v.id === selected ? " is-selected" : ""}`} onClick={() => setSelected(v.id)}>
-                <td className="strong">{v.code}</td>
-                <td className="mono">{v.plate}</td>
-                <td>{humanize(v.kind)}</td>
-                <td>
-                  <Pill value={v.status} />
-                </td>
-                <td>{v.currentSiteId ? refs.siteCode(v.currentSiteId) : "—"}</td>
-                <td className="right nowrap">
-                  {formatKg(v.capacityKg)} · {v.capacityM3} m³
-                </td>
-                <td className="right">{v.odometerKm.toLocaleString()} km</td>
-                <td className="muted small">{v.lastSeenAt ? fromNow(v.lastSeenAt) : "—"}</td>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Plate</th>
+                <th>Kind</th>
+                <th>Status</th>
+                <th>Where</th>
+                <th className="right">Capacity</th>
+                <th className="right">Odometer</th>
+                <th>Last GPS</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(refs.vehicles ?? []).map((v) => (
+                <tr key={v.id} className={`is-clickable${v.id === selected ? " is-selected" : ""}`} onClick={() => setSelected(v.id)}>
+                  <td className="strong">{v.code}</td>
+                  <td className="mono">{v.plate}</td>
+                  <td>{humanize(v.kind)}</td>
+                  <td>
+                    <Pill value={v.status} />
+                  </td>
+                  <td>{v.currentSiteId ? refs.siteCode(v.currentSiteId) : "—"}</td>
+                  <td className="right nowrap">
+                    {formatKg(v.capacityKg)} · {v.capacityM3} m³
+                  </td>
+                  <td className="right">{v.odometerKm.toLocaleString()} km</td>
+                  <td className="muted small">{v.lastSeenAt ? fromNow(v.lastSeenAt) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Panel>
       {vehicle ? <VehiclePanel vehicle={vehicle} refs={refs} /> : <Panel title="Vehicle"><Empty>Select a vehicle to see its timeline</Empty></Panel>}
       {adding ? <AddVehicle refs={refs} onClose={() => setAdding(false)} /> : null}
@@ -106,7 +112,9 @@ function Vehicles({ refs }: { refs: Refs }) {
 
 function VehiclePanel({ vehicle, refs }: { vehicle: Vehicle; refs: Refs }) {
   const events = useApi<EventRecord[]>(`/vehicles/${vehicle.id}/events?limit=60`, { live: (e) => e.vehicleId === vehicle.id });
-  const maint = useApi<MaintenanceRecord[]>(`/maintenance?vehicleId=${vehicle.id}`);
+  const maint = useApi<MaintenanceRecord[]>(`/maintenance?vehicleId=${vehicle.id}`, {
+    live: (e) => e.type.startsWith("maintenance.") && (!e.vehicleId || e.vehicleId === vehicle.id),
+  });
   const { busy, run } = useAction();
   const [kind, setKind] = useState<MaintenanceKind>("service");
   const [desc, setDesc] = useState("");
@@ -114,6 +122,7 @@ function VehiclePanel({ vehicle, refs }: { vehicle: Vehicle; refs: Refs }) {
   return (
     <Panel title={`${vehicle.code} · ${vehicle.plate}`} scroll actions={<Pill value={vehicle.status} />}>
       <div className="stack">
+        <ErrorNote error={maint.error || events.error} />
         <dl className="kv">
           <dt>Model</dt>
           <dd>{vehicle.model || "—"}</dd>
@@ -211,54 +220,59 @@ function AddVehicle({ refs, onClose }: { refs: Refs; onClose: () => void }) {
 
 function Drivers({ refs }: { refs: Refs }) {
   const { busy, run } = useAction();
-  const trips = useApi<{ driverId: string | null; code: string; status: string }[]>("/trips?active=true&limit=300");
+  const trips = useApi<{ driverId: string | null; code: string; status: string }[]>("/trips?active=true&limit=300", {
+    live: (e) => e.type.startsWith("trip."),
+  });
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ code: "", name: "", phone: "", licenseClass: "C", licenseExpiry: "2028-12-31" });
   const soon = Date.now() + 90 * 86_400_000;
   return (
     <Panel title="Drivers" actions={<button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}>Add driver</button>}>
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>License</th>
-            <th>Status</th>
-            <th>Current trip</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {(refs.drivers ?? []).map((d: Driver) => {
-            const trip = trips.data?.find((t) => t.driverId === d.id && t.status !== "planned");
-            const expiring = Date.parse(d.licenseExpiry) < soon;
-            return (
-              <tr key={d.id}>
-                <td className="strong">{d.code}</td>
-                <td>{d.name}</td>
-                <td className="muted">{d.phone}</td>
-                <td className={expiring ? "danger-text" : ""}>
-                  {d.licenseClass} · exp {d.licenseExpiry}
-                </td>
-                <td><Pill value={d.status} /></td>
-                <td>{trip ? `${trip.code} (${humanize(trip.status)})` : "—"}</td>
-                <td className="right">
-                  {d.status !== "on_trip" ? (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      disabled={busy}
-                      onClick={() => run(() => api.patch(`/drivers/${d.id}`, { status: d.status === "off_duty" ? "available" : "off_duty" }), "Driver updated")}
-                    >
-                      {d.status === "off_duty" ? "Set on duty" : "Set off duty"}
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <ErrorNote error={trips.error} />
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>License</th>
+              <th>Status</th>
+              <th>Current trip</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {(refs.drivers ?? []).map((d: Driver) => {
+              const trip = trips.data?.find((t) => t.driverId === d.id && t.status !== "planned");
+              const expiring = Date.parse(d.licenseExpiry) < soon;
+              return (
+                <tr key={d.id}>
+                  <td className="strong">{d.code}</td>
+                  <td>{d.name}</td>
+                  <td className="muted">{d.phone}</td>
+                  <td className={expiring ? "danger-text" : ""}>
+                    {d.licenseClass} · exp {d.licenseExpiry}
+                  </td>
+                  <td><Pill value={d.status} /></td>
+                  <td>{trip ? `${trip.code} (${humanize(trip.status)})` : "—"}</td>
+                  <td className="right">
+                    {d.status !== "on_trip" ? (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={busy}
+                        onClick={() => run(() => api.patch(`/drivers/${d.id}`, { status: d.status === "off_duty" ? "available" : "off_duty" }), "Driver updated")}
+                      >
+                        {d.status === "off_duty" ? "Set on duty" : "Set off duty"}
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {adding ? (
         <Modal title="Add driver" onClose={() => setAdding(false)}>
           <div className="form-2">
@@ -285,50 +299,53 @@ function Drivers({ refs }: { refs: Refs }) {
 }
 
 function Maintenance({ refs }: { refs: Refs }) {
-  const list = useApi<MaintenanceRecord[]>("/maintenance");
+  const list = useApi<MaintenanceRecord[]>("/maintenance", { live: (e) => e.type.startsWith("maintenance.") });
   const { busy, run } = useAction();
   const [cost, setCost] = useState<Record<string, string>>({});
   return (
     <Panel title="Work orders">
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Vehicle</th>
-            <th>Kind</th>
-            <th>Description</th>
-            <th>Opened</th>
-            <th>Closed</th>
-            <th className="right">Cost</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {(list.data ?? []).map((m) => (
-            <tr key={m.id}>
-              <td className="strong">{refs.vehicleLabel(m.vehicleId)}</td>
-              <td><Pill tone={m.closedAt ? "muted" : "danger"}>{humanize(m.kind)}</Pill></td>
-              <td>{m.description}</td>
-              <td>{fmtDateTime(m.openedAt)}</td>
-              <td>{fmtDateTime(m.closedAt)}</td>
-              <td className="right">{m.closedAt ? formatCents(m.costCents) : null}</td>
-              <td className="right">
-                {!m.closedAt ? (
-                  <span className="row" style={{ justifyContent: "flex-end" }}>
-                    <input className="input" style={{ width: 90 }} placeholder="Cost $" value={cost[m.id] ?? ""} onChange={(e) => setCost({ ...cost, [m.id]: e.target.value })} />
-                    <button
-                      className="btn btn-primary btn-sm"
-                      disabled={busy}
-                      onClick={() => run(() => api.post(`/maintenance/${m.id}/close`, { costCents: Math.round(Number(cost[m.id] || 0) * 100) }), "Work order closed")}
-                    >
-                      Close
-                    </button>
-                  </span>
-                ) : null}
-              </td>
+      <ErrorNote error={list.error} />
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Vehicle</th>
+              <th>Kind</th>
+              <th>Description</th>
+              <th>Opened</th>
+              <th>Closed</th>
+              <th className="right">Cost</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(list.data ?? []).map((m) => (
+              <tr key={m.id}>
+                <td className="strong">{refs.vehicleLabel(m.vehicleId)}</td>
+                <td><Pill tone={m.closedAt ? "muted" : "danger"}>{humanize(m.kind)}</Pill></td>
+                <td>{m.description}</td>
+                <td>{fmtDateTime(m.openedAt)}</td>
+                <td>{fmtDateTime(m.closedAt)}</td>
+                <td className="right">{m.closedAt ? formatCents(m.costCents) : null}</td>
+                <td className="right">
+                  {!m.closedAt ? (
+                    <span className="row" style={{ justifyContent: "flex-end" }}>
+                      <input className="input" style={{ width: 90 }} placeholder="Cost $" value={cost[m.id] ?? ""} onChange={(e) => setCost({ ...cost, [m.id]: e.target.value })} />
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={busy}
+                        onClick={() => run(() => api.post(`/maintenance/${m.id}/close`, { costCents: Math.round(Number(cost[m.id] || 0) * 100) }), "Work order closed")}
+                      >
+                        Close
+                      </button>
+                    </span>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Panel>
   );
 }
@@ -345,35 +362,38 @@ function Devices({ refs }: { refs: Refs }) {
   return (
     <div className="split" style={{ padding: 0, overflow: "visible" }}>
       <Panel title="Registered devices">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Kind</th>
-              <th>Bound to</th>
-              <th>Last seen</th>
-              <th>Active</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(devices.data ?? []).map((d) => (
-              <tr key={d.id}>
-                <td>
-                  <div className="strong">{d.code}</div>
-                  <div className="muted small">{d.name}</div>
-                </td>
-                <td>{humanize(d.kind)}</td>
-                <td>{d.vehicleId ? refs.vehicleLabel(d.vehicleId) : `${refs.siteCode(d.siteId)} location`}</td>
-                <td className="muted">{d.lastSeenAt ? fromNow(d.lastSeenAt) : "never"}</td>
-                <td>
-                  <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => run(() => api.patch(`/devices/${d.id}`, { active: !d.active }), "Device updated")}>
-                    {d.active ? "Disable" : "Enable"}
-                  </button>
-                </td>
+        <ErrorNote error={devices.error} />
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Kind</th>
+                <th>Bound to</th>
+                <th>Last seen</th>
+                <th>Active</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(devices.data ?? []).map((d) => (
+                <tr key={d.id}>
+                  <td>
+                    <div className="strong">{d.code}</div>
+                    <div className="muted small">{d.name}</div>
+                  </td>
+                  <td>{humanize(d.kind)}</td>
+                  <td>{d.vehicleId ? refs.vehicleLabel(d.vehicleId) : `${refs.siteCode(d.siteId)} location`}</td>
+                  <td className="muted">{d.lastSeenAt ? fromNow(d.lastSeenAt) : "never"}</td>
+                  <td>
+                    <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => run(() => api.patch(`/devices/${d.id}`, { active: !d.active }), "Device updated")}>
+                      {d.active ? "Disable" : "Enable"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div style={{ marginTop: 14 }}>
           <p className="field-label" style={{ marginBottom: 6 }}>Ingest API</p>
           <pre className="snippet">{`POST ${API_URL}/ingest/events

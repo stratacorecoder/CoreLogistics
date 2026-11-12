@@ -2,7 +2,7 @@ import { LoginInputSchema, LoginResponseSchema, OkSchema, SessionUserSchema } fr
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { unauthorized } from "../../errors.js";
-import { login, logout, sessionUser, tokenOf } from "./service.js";
+import { buildSessionCookie, login, logout, sessionUser, tokenOf } from "./service.js";
 
 export default async function authRoutes(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
@@ -11,7 +11,11 @@ export default async function authRoutes(app: FastifyInstance) {
   r.post(
     "/auth/login",
     { schema: { tags, body: LoginInputSchema, response: { 200: LoginResponseSchema } } },
-    async (req) => login(req.body),
+    async (req, reply) => {
+      const result = login(req.body, req.ip);
+      reply.header("Set-Cookie", buildSessionCookie(result.token, req));
+      return result;
+    },
   );
 
   r.get("/auth/me", { schema: { tags, response: { 200: SessionUserSchema } } }, async (req) => {
@@ -20,8 +24,9 @@ export default async function authRoutes(app: FastifyInstance) {
     return user;
   });
 
-  r.post("/auth/logout", { schema: { tags, response: { 200: OkSchema } } }, async (req) => {
+  r.post("/auth/logout", { schema: { tags, response: { 200: OkSchema } } }, async (req, reply) => {
     logout(tokenOf(req));
+    reply.header("Set-Cookie", buildSessionCookie("", req, 0));
     return { ok: true as const };
   });
 }

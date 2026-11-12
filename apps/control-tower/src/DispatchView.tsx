@@ -10,6 +10,7 @@ import {
 } from "@corelogistics/contracts";
 import {
   api,
+  ErrorNote,
   EventFeed,
   Field,
   fmtDateTime,
@@ -59,8 +60,12 @@ const COLUMNS: Array<{
 
 export function DispatchView({ refs }: { refs: Refs }) {
   const now = useNow(30_000);
-  const active = useApi<Trip[]>("/trips?active=true&limit=300");
-  const recent = useApi<Trip[]>("/trips?status=completed,cancelled&active=false&limit=20");
+  const isTripEvent = (e: EventRecord) =>
+    e.type.startsWith("trip.") || e.type.startsWith("gate.") || e.type.startsWith("dock.") || e.type === "device.read";
+  const active = useApi<Trip[]>("/trips?active=true&limit=300", { live: isTripEvent });
+  const recent = useApi<Trip[]>("/trips?status=completed,cancelled&active=false&limit=20", {
+    live: (e) => e.type === "trip.completed" || e.type === "trip.cancelled",
+  });
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("");
@@ -91,7 +96,7 @@ export function DispatchView({ refs }: { refs: Refs }) {
   const open = all.find((t) => t.id === openId) ?? null;
 
   return (
-    <div className="page stack dispatch-page" style={{ display: "flex", overflow: "hidden" }}>
+    <div className="page stack dispatch-page" style={{ display: "flex" }}>
       <div className="dispatch-toolbar">
         <div className="dispatch-search-box">
           <Search className="dispatch-search-icon" size={15} />
@@ -177,32 +182,42 @@ export function DispatchView({ refs }: { refs: Refs }) {
         </button>
       </div>
 
-      {/* Connected Pipeline Track Header */}
-      <div className="pipeline-track-header">
-        {COLUMNS.map((col, idx) => (
-          <div key={col.status} className={`pipeline-header-stage stage-${col.status}`}>
-            <div className="pipeline-header-title">
-              <col.icon size={15} className="stage-icon" />
-              <span>{col.label}</span>
-            </div>
-            {idx < COLUMNS.length - 1 && (
-              <div className={`pipeline-header-connector connector-${col.status}`}>
-                <span className="connector-line" />
-                <ArrowRight size={13} className="connector-arrow" />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      <ErrorNote error={active.error || recent.error} />
 
-      {/* Pipeline Board Grid */}
-      <div className="pipeline-board-grid">
-        {COLUMNS.map((col, idx) => {
-          const trips = visible.filter((t) => t.status === col.status);
-          const isLastCol = idx === COLUMNS.length - 1;
-          return (
-            <div key={col.status} className={`pipeline-stage-column stage-${col.status}`}>
-              <div className="pipeline-column-cards">
+      {/* Connected Pipeline Track */}
+      <div className="pipeline-scroll">
+        <div className="pipeline-track-header">
+          {COLUMNS.map((col, idx) => (
+            <div key={col.status} className={`pipeline-header-stage stage-${col.status}`}>
+              <div className="pipeline-header-title">
+                <col.icon size={15} className="stage-icon" />
+                <span>{col.label}</span>
+              </div>
+              {idx < COLUMNS.length - 1 && (
+                <div className={`pipeline-header-connector connector-${col.status}`}>
+                  <span className="connector-line" />
+                  <ArrowRight size={13} className="connector-arrow" />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Pipeline Board Grid */}
+        <div className="pipeline-board-grid">
+          {COLUMNS.map((col, idx) => {
+            const trips = visible.filter((t) => t.status === col.status);
+            const isLastCol = idx === COLUMNS.length - 1;
+            return (
+              <div key={col.status} className={`pipeline-stage-column stage-${col.status}`}>
+                <div className={`pipeline-mobile-head stage-${col.status}`}>
+                  <span className="pipeline-header-title">
+                    <col.icon size={15} className="stage-icon" />
+                    <span>{col.label}</span>
+                  </span>
+                  <span className="chip-count">{trips.length}</span>
+                </div>
+                <div className="pipeline-column-cards">
                 {trips.length ? (
                   trips.map((t) => {
                     const hasMissingAssets = !t.vehicleId || !t.driverId;
@@ -340,6 +355,7 @@ export function DispatchView({ refs }: { refs: Refs }) {
             </div>
           );
         })}
+        </div>
       </div>
       {open ? <TripModal trip={open} refs={refs} onClose={() => setOpenId(null)} /> : null}
       {creating ? (
@@ -404,7 +420,7 @@ function AssetSelects({
 }
 
 function TripModal({ trip, refs, onClose }: { trip: Trip; refs: Refs; onClose: () => void }) {
-  const events = useApi<EventRecord[]>(`/trips/${trip.id}/events`);
+  const events = useApi<EventRecord[]>(`/trips/${trip.id}/events`, { live: (e) => e.tripId === trip.id });
   const { busy, run } = useAction();
   const editable = trip.status === "planned" || trip.status === "dispatched";
   const [assets, setAssets] = useState({ vehicleId: trip.vehicleId, trailerId: trip.trailerId, driverId: trip.driverId });

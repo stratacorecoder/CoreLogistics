@@ -130,19 +130,6 @@ button.on-site-truck-card.is-selected {
   gap: 12px;
   padding: 4px 2px 2px;
 }
-@media (max-width: 1100px) {
-  .gate-board {
-    grid-template-columns: 1fr;
-    overflow: auto;
-  }
-  .gate-map-panel {
-    height: auto;
-    min-height: 420px;
-  }
-  .gate-rail {
-    overflow: visible;
-  }
-}
 .gate-rail {
   overflow: hidden;
   min-height: 0;
@@ -174,6 +161,31 @@ button.on-site-truck-card.is-selected {
 }
 .gate-map-wrap .site-map-frame {
   margin: 0;
+}
+@media (max-width: 1100px) {
+  .gate-board {
+    grid-template-columns: 1fr;
+    overflow-x: hidden;
+    overflow-y: auto;
+    align-content: start;
+  }
+  .gate-map-panel {
+    height: clamp(280px, 48vh, 420px);
+    min-height: 280px;
+  }
+  .gate-map-wrap {
+    overflow: auto;
+    justify-content: safe center;
+    align-items: safe center;
+    padding: 6px;
+  }
+  .gate-rail {
+    overflow: visible;
+  }
+  .stack.gate-rail > .panel.grow,
+  .gate-board > .stack > .panel.gate-side-panel {
+    flex: none;
+  }
 }
 
 .gate-side-panel .panel-head {

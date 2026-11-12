@@ -109,29 +109,39 @@ export function listAppointments(siteId?: string, status?: string): DockAppointm
   ).map(toAppointment);
 }
 
+export function assertDockAppointmentWindowFree(
+  siteId: string,
+  locationId: string,
+  windowStart: string,
+  windowEnd: string,
+  excludeAppointmentId?: string,
+): string {
+  const loc = getLocation(locationId);
+  if (loc.siteId !== siteId || loc.kind !== "dock_door") {
+    throw badRequest("Location is not a dock door at this site");
+  }
+  const conflicting = one<Row>(
+    `SELECT id, code, plate, window_start, window_end FROM dock_appointments
+     WHERE site_id = ? AND location_id = ? AND status IN ('scheduled', 'checked_in')
+       AND (? IS NULL OR id != ?)
+       AND window_start < ? AND window_end > ?
+     LIMIT 1`,
+    [siteId, locationId, excludeAppointmentId ?? null, excludeAppointmentId ?? null, windowEnd, windowStart],
+  );
+  if (conflicting) {
+    throw conflict(
+      `Dock door ${loc.code} is already booked by appointment ${conflicting.code} (${conflicting.plate}) for window ${conflicting.window_start} - ${conflicting.window_end}`,
+    );
+  }
+  return loc.code;
+}
+
 export function createAppointment(input: z.output<typeof DockAppointmentInputSchema>, ctx: Ctx): DockAppointment {
   return tx(() => {
     const site = getSite(input.siteId);
-    let locationCode: string | null = null;
-    if (input.locationId) {
-      const loc = getLocation(input.locationId);
-      if (loc.siteId !== site.id || loc.kind !== "dock_door") {
-        throw badRequest("Location is not a dock door at this site");
-      }
-      locationCode = loc.code;
-      const conflicting = one<Row>(
-        `SELECT id, code, plate, window_start, window_end FROM dock_appointments
-         WHERE site_id = ? AND location_id = ? AND status IN ('scheduled', 'checked_in')
-           AND window_start < ? AND window_end > ?
-         LIMIT 1`,
-        [site.id, input.locationId, input.windowEnd, input.windowStart],
-      );
-      if (conflicting) {
-        throw conflict(
-          `Dock door ${locationCode} is already booked by appointment ${conflicting.code} (${conflicting.plate}) for window ${conflicting.window_start} - ${conflicting.window_end}`,
-        );
-      }
-    }
+    const locationCode = input.locationId
+      ? assertDockAppointmentWindowFree(site.id, input.locationId, input.windowStart, input.windowEnd)
+      : null;
     const id = newId("app");
     const code = nextCode("dock_appointment", "APP");
     const when = at(ctx);

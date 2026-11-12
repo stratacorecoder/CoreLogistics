@@ -1,0 +1,54 @@
+{
+  auto_https disable_redirects
+}
+
+(corelogistics) {
+  encode zstd gzip
+
+  handle_path /api/* {
+    reverse_proxy api:3100 {
+      flush_interval -1
+    }
+  }
+
+  redir /gate /gate/ 308
+  redir /warehouse /warehouse/ 308
+  redir /driver /driver/ 308
+
+  handle_path /gate/* {
+    root * /srv/gate
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle_path /warehouse/* {
+    root * /srv/warehouse
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle_path /driver/* {
+    root * /srv/driver
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle {
+    root * /srv/tower
+    try_files {path} /index.html
+    file_server
+  }
+}
+
+:80 {
+  import corelogistics
+}
+
+# For public internet deployments with a registered domain, replace :443 and
+# `tls internal { on_demand }` with your domain name for automatic ACME HTTPS.
+:443 {
+  tls internal {
+    on_demand
+  }
+  import corelogistics
+}

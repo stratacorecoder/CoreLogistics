@@ -45,7 +45,7 @@ type Side = "expected" | "appointments" | "log";
 
 export default function App() {
   const { user, ready, signIn, signOut } = useAuth("gate");
-  const refs = useRefs();
+  const refs = useRefs(Boolean(user));
   const [siteId, setSiteIdRaw] = useLocalState<string | null>("gate.site", null);
   const setSiteId = useCallback((id: string) => setSiteIdRaw(id), [setSiteIdRaw]);
   if (!ready) return null;
@@ -72,11 +72,22 @@ export default function App() {
 function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
   const { busy, run } = useAction();
   const now = useNow(30_000);
-  const expected = useApi<ExpectedTrip[]>(`/gate/expected${qs({ siteId })}`);
-  const appointments = useApi<DockAppointment[]>(`/gate/appointments${qs({ siteId })}`);
-  const visits = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, open: "true" })}`);
-  const log = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, limit: 40 })}`);
-  const board = useApi<SiteBoard>(`/sites/${siteId}/board`);
+  const gateVisitEvent = (e: { type: string; siteId?: string | null }) =>
+    (!e.siteId || e.siteId === siteId) &&
+    (e.type.startsWith("gate.") || e.type.startsWith("dock.") || e.type.startsWith("yard.") || e.type === "device.read");
+  const expected = useApi<ExpectedTrip[]>(`/gate/expected${qs({ siteId })}`, {
+    live: (e) => e.type.startsWith("trip.") || e.type.startsWith("gate.") || e.type === "device.read",
+  });
+  const appointments = useApi<DockAppointment[]>(`/gate/appointments${qs({ siteId })}`, {
+    live: (e) =>
+      (!e.siteId || e.siteId === siteId) &&
+      (e.type.startsWith("appointment.") || e.type.startsWith("gate.") || e.type === "copilot.applied" || e.type === "device.read"),
+  });
+  const visits = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, open: "true" })}`, { live: gateVisitEvent });
+  const log = useApi<GateVisit[]>(`/gate/visits${qs({ siteId, limit: 40 })}`, { live: gateVisitEvent });
+  const board = useApi<SiteBoard>(`/sites/${siteId}/board`, {
+    live: (e) => gateVisitEvent(e) || (e.type === "layout.saved" && e.siteId === siteId),
+  });
   const [side, setSide] = useState<Side>("expected");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [checkInFor, setCheckInFor] = useState<{ plate: string; tripId?: string } | null>(null);
@@ -99,7 +110,7 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
 
   return (
     <div className="three gate-board">
-      <div className="stack" style={{ overflow: "hidden" }}>
+      <div className="stack gate-rail">
         <QuickGate siteId={siteId} onCheckIn={(plate) => setCheckInFor({ plate })} onCheckedOut={() => setSelectedId(null)} />
         <Panel
           scroll
@@ -210,31 +221,33 @@ function GateDesk({ siteId, refs }: { siteId: string; refs: Refs }) {
               <Empty>Nothing expected right now</Empty>
             )
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Plate</th>
-                  <th>In</th>
-                  <th>Out</th>
-                  <th>Dwell</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(log.data ?? []).map((v) => (
-                  <tr key={v.id}>
-                    <td>
-                      <div className="mono strong">{v.plate}</div>
-                      <div className="muted small">{v.tripCode ?? "no trip"}</div>
-                    </td>
-                    <td className="small">
-                      {fmtTime(v.checkInAt)} {v.sourceIn !== "manual" ? <Pill tone="info">{v.sourceIn}</Pill> : null}
-                    </td>
-                    <td className="small">{v.checkOutAt ? fmtTime(v.checkOutAt) : <Pill value={v.status} />}</td>
-                    <td className="small">{formatDuration(v.dwellMinutes)}</td>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Plate</th>
+                    <th>In</th>
+                    <th>Out</th>
+                    <th>Dwell</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(log.data ?? []).map((v) => (
+                    <tr key={v.id}>
+                      <td>
+                        <div className="mono strong">{v.plate}</div>
+                        <div className="muted small">{v.tripCode ?? "no trip"}</div>
+                      </td>
+                      <td className="small">
+                        {fmtTime(v.checkInAt)} {v.sourceIn !== "manual" ? <Pill tone="info">{v.sourceIn}</Pill> : null}
+                      </td>
+                      <td className="small">{v.checkOutAt ? fmtTime(v.checkOutAt) : <Pill value={v.status} />}</td>
+                      <td className="small">{formatDuration(v.dwellMinutes)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Panel>
       </div>
@@ -544,7 +557,9 @@ function CheckInModal({
 
 function VisitPanel({ visit, board, onClose }: { visit: GateVisit; board: SiteBoard; onClose: () => void }) {
   const { busy, run } = useAction();
-  const suggestion = useApi<DockSuggestion>(visit.dock ? null : `/gate/visits/${visit.id}/dock-suggestion`);
+  const suggestion = useApi<DockSuggestion>(visit.dock ? null : `/gate/visits/${visit.id}/dock-suggestion`, {
+    live: (e) => e.type.startsWith("gate.") || e.type.startsWith("dock.") || e.type.startsWith("appointment."),
+  });
   const [purpose, setPurpose] = useState<DockPurpose | "">("");
   const [seal, setSeal] = useState("");
   const [moving, setMoving] = useState(false);

@@ -11,11 +11,11 @@ const fleetEvents = (e: { type: string }) =>
   e.type.startsWith("dock.");
 
 /** Reference data most screens need to turn ids into names. */
-export function useRefs() {
-  const sites = useApi<Site[]>("/sites", { live: (e) => e.type === "site.created" || e.type === "layout.saved" });
-  const vehicles = useApi<Vehicle[]>("/vehicles", { live: fleetEvents });
-  const drivers = useApi<Driver[]>("/drivers", { live: fleetEvents });
-  const skus = useApi<Sku[]>("/skus", { live: false });
+export function useRefs(enabled = true) {
+  const sites = useApi<Site[]>(enabled ? "/sites" : null, { live: (e) => e.type === "site.created" || e.type === "layout.saved" });
+  const vehicles = useApi<Vehicle[]>(enabled ? "/vehicles" : null, { live: fleetEvents });
+  const drivers = useApi<Driver[]>(enabled ? "/drivers" : null, { live: fleetEvents });
+  const skus = useApi<Sku[]>(enabled ? "/skus" : null, { live: false });
   const reloadVehicles = vehicles.reload;
   const reloadDrivers = drivers.reload;
   return useMemo(() => {
