@@ -1,8 +1,9 @@
 import type { EventRecord } from "@corelogistics/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, API_URL } from "./api.js";
-import { createReloadScheduler, createSourceManager, type EventSourceLike } from "./live-controller.js";
+import { createReloadScheduler, createSourceManager, type EventSourceLike, type StreamPhase } from "./live-controller.js";
 
+export type { StreamPhase };
 type Listener = (e: EventRecord) => void;
 
 function openStream(): EventSourceLike | null {
@@ -50,6 +51,13 @@ export function useLiveEvents(onEvent: Listener, enabled = true) {
 export function useStreamStatus(): boolean {
   const [state, setState] = useState(() => sourceManager.isOnline());
   useEffect(() => sourceManager.subscribeStatus(setState), []);
+  return state;
+}
+
+/** Connecting until the first open or error, then online or offline. */
+export function useStreamPhase(): StreamPhase {
+  const [state, setState] = useState<StreamPhase>(() => sourceManager.getPhase());
+  useEffect(() => sourceManager.subscribePhase(setState), []);
   return state;
 }
 

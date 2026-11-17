@@ -24,6 +24,7 @@ import {
   Panel,
   Pill,
   qs,
+  DeskNotice,
   LoginPage,
   useAuth,
   Shell,
@@ -52,6 +53,7 @@ export default function App() {
   if (!user) return <LoginPage onSubmit={signIn} />;
 
   return (
+    <>
     <Shell
       mark="GT"
       title="CoreLogistics"
@@ -66,6 +68,8 @@ export default function App() {
     >
       {siteId ? <GateDesk key={siteId} siteId={siteId} refs={refs} /> : null}
     </Shell>
+    <DeskNotice desk="gate" />
+    </>
   );
 }
 

@@ -193,9 +193,31 @@ export const PutawayTaskSchema = z.object({
 });
 export type PutawayTask = z.infer<typeof PutawayTaskSchema>;
 
-export const PutawayConfirmInputSchema = z.object({
-  locationId: IdSchema.optional().describe("Override the suggested bin"),
-});
+export const SCAN_ENTRY_METHODS = ["camera", "keyboard", "manual"] as const;
+export const ScanEntryMethodSchema = z.enum(SCAN_ENTRY_METHODS);
+export type ScanEntryMethod = z.infer<typeof ScanEntryMethodSchema>;
+
+const confirmRequestShape = {
+  requestId: z.string().trim().min(8).max(80),
+  entryMethod: ScanEntryMethodSchema,
+};
+
+export const PutawayConfirmInputSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("match"),
+    ...confirmRequestShape,
+    huBarcode: z.string().trim().min(1).max(64),
+    binBarcode: z.string().trim().min(1).max(64),
+  }),
+  z.object({
+    mode: z.literal("override"),
+    ...confirmRequestShape,
+    huBarcode: z.string().trim().max(64).optional(),
+    binBarcode: z.string().trim().max(64).optional(),
+    reason: z.string().trim().min(3).max(500),
+  }),
+]);
+export type PutawayConfirmInput = z.infer<typeof PutawayConfirmInputSchema>;
 
 export const SortResultSchema = z.object({
   hu: HandlingUnitSchema,

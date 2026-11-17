@@ -1,5 +1,5 @@
 import type { Order, PutawayTask, Receipt, Shipment } from "@corelogistics/contracts";
-import { ActorBadge, Empty, LoginPage, qs, Shell, SitePicker, Tabs, useApi, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
+import { ActorBadge, DeskNotice, Empty, LoginPage, qs, Shell, SitePicker, Tabs, useApi, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
 import { lazy, Suspense, useCallback } from "react";
 import { ReceiveView } from "./ReceiveView";
 
@@ -36,6 +36,7 @@ export default function App() {
   if (!user) return <LoginPage onSubmit={signIn} />;
 
   return (
+    <>
     <Shell
       mark="WH"
       title="CoreLogistics"
@@ -68,13 +69,15 @@ export default function App() {
           <Suspense fallback={<div className="page"><Empty>Loading…</Empty></div>}>
             {view === "receive" ? <ReceiveView siteId={siteId} refs={refs} onSort={() => setView("sort")} /> : null}
             {view === "sort" ? <SortView siteId={siteId} refs={refs} onPutaway={() => setView("putaway")} /> : null}
-            {view === "putaway" ? <PutawayView siteId={siteId} /> : null}
-            {view === "pick" ? <PickView siteId={siteId} refs={refs} /> : null}
+            {view === "putaway" ? <PutawayView siteId={siteId} canOverride={user.role === "tower"} /> : null}
+            {view === "pick" ? <PickView siteId={siteId} refs={refs} canOverride={user.role === "tower"} /> : null}
             {view === "ship" ? <ShipView siteId={siteId} refs={refs} /> : null}
             {view === "stock" ? <StockView siteId={siteId} /> : null}
           </Suspense>
         </div>
       ) : null}
     </Shell>
+    <DeskNotice desk="warehouse" />
+    </>
   );
 }

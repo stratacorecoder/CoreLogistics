@@ -5,6 +5,7 @@ import {
   OrderInputSchema,
   OrderQuerySchema,
   OrderSchema,
+  PickConfirmInputSchema,
   PickConfirmResultSchema,
   PickTaskSchema,
   ReleaseResultSchema,
@@ -20,6 +21,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { ctxOf } from "../../events.js";
+import { stockConfirmAuth, tokenOf } from "../auth/service.js";
 import {
   confirmPick,
   createOrder,
@@ -95,8 +97,16 @@ export default async function outboundRoutes(app: FastifyInstance) {
   );
   r.post(
     "/outbound/picks/:id/confirm",
-    { schema: { tags, params: IdParamsSchema, response: { 200: PickConfirmResultSchema } } },
-    async (req) => confirmPick(req.params.id, ctxOf(req)),
+    {
+      schema: {
+        tags,
+        params: IdParamsSchema,
+        body: PickConfirmInputSchema,
+        response: { 200: PickConfirmResultSchema },
+      },
+    },
+    async (req) =>
+      confirmPick(req.params.id, req.body, ctxOf(req), stockConfirmAuth(tokenOf(req))),
   );
 
   r.get(

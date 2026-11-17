@@ -2,7 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import type { LoginInput, SessionUser } from "@corelogistics/contracts";
 import type { FastifyRequest } from "fastify";
 import { many, newId, nowIso, one, run } from "../../db.js";
-import { HttpError, unauthorized } from "../../errors.js";
+import { forbidden, HttpError, unauthorized } from "../../errors.js";
 
 const SESSION_DAYS = 7;
 export const SESSION_COOKIE_NAME = "cl_session";
@@ -144,6 +144,15 @@ export function login(input: LoginInput, ip?: string): { token: string; user: Se
   const expires = new Date(now + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
   run("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)", [token, row.id, expires]);
   return { token, user: toUser(row) };
+}
+
+/** Pick and putaway confirmation is a warehouse action. Tower may also confirm, including an override. */
+export function stockConfirmAuth(token: string | undefined | null): { tower: boolean } {
+  const user = sessionUser(token);
+  if (!user || (user.role !== "warehouse" && user.role !== "tower")) {
+    throw forbidden("Warehouse role required to confirm stock");
+  }
+  return { tower: user.role === "tower" };
 }
 
 export function sessionUser(token: string | undefined | null): SessionUser | undefined {

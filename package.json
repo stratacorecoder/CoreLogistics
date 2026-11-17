@@ -19,6 +19,7 @@
     "openapi": "npm run openapi -w @corelogistics/api",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "tsx --test tests/e2e/app.e2e.ts",
+    "audit:triage": "node scripts/audit-triage.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tests/tsconfig.json",
     "build": "npm run build --workspaces --if-present"
   },

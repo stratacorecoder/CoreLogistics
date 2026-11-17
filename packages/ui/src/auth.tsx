@@ -10,6 +10,9 @@ const ROLE_ROUTING = (import.meta as { env?: { VITE_ROLE_ROUTING?: string } }).e
 const DEMO_LOGIN_ENABLED =
   import.meta.env.DEV || import.meta.env.VITE_DEMO_ACCOUNTS === "1";
 
+/** Cleared on sign-out so the phone notice shows again at the next login. */
+export const DESK_NOTICE_KEY = "corelogistics:desk-notice";
+
 export const DEMO_ACCOUNTS = DEMO_LOGIN_ENABLED
   ? [
       { username: "ava", password: "planner", name: "Ava Chen", role: "tower" as const, title: "Planner" },
@@ -102,6 +105,7 @@ export function useAuth(home: AppRoleId) {
     closeSource();
     clearSession();
     setActor("");
+    sessionStorage.removeItem(DESK_NOTICE_KEY);
     setUser(null);
   }, []);
 
