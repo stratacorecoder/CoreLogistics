@@ -20,6 +20,19 @@ export const DockInfoSchema = z.object({
 });
 export type DockInfo = z.infer<typeof DockInfoSchema>;
 
+export const GATE_INSPECTION_STATUSES = ["passed", "hold"] as const;
+export const GateInspectionStatusSchema = z.enum(GATE_INSPECTION_STATUSES);
+export type GateInspectionStatus = z.infer<typeof GateInspectionStatusSchema>;
+
+export const GateProofPhotoSchema = z
+  .string()
+  .trim()
+  .max(250_000)
+  .refine(
+    (val) => !val || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(val),
+    { message: "Photo proof must be a valid base64 PNG, JPEG, or WebP data URL" },
+  );
+
 export const GateVisitSchema = z.object({
   id: IdSchema,
   siteId: IdSchema,
@@ -40,6 +53,9 @@ export const GateVisitSchema = z.object({
   sourceOut: EventSourceSchema.nullable(),
   dock: DockInfoSchema.nullable(),
   dwellMinutes: z.number().int(),
+  proofPhotoIn: z.string().nullable().default(null),
+  proofPhotoOut: z.string().nullable().default(null),
+  inspectionStatus: GateInspectionStatusSchema.default("passed"),
 });
 export type GateVisit = z.infer<typeof GateVisitSchema>;
 
@@ -58,6 +74,8 @@ export const CheckInInputSchema = z
     sealNo: z.string().default(""),
     notes: z.string().default(""),
     yardLocationId: IdSchema.optional(),
+    proofPhoto: GateProofPhotoSchema.optional(),
+    inspectionStatus: GateInspectionStatusSchema.optional(),
   })
   .refine((v) => Boolean(v.plate || v.vehicleId), { message: "plate or vehicleId required" });
 export type CheckInInput = z.input<typeof CheckInInputSchema>;
@@ -69,11 +87,20 @@ export const CheckOutInputSchema = z
     plate: z.string().optional(),
     sealNo: z.string().default(""),
     notes: z.string().default(""),
+    proofPhoto: GateProofPhotoSchema.optional(),
   })
   .refine((v) => Boolean(v.visitId || (v.plate && v.siteId)), {
     message: "visitId, or plate and siteId, required",
   });
 export type CheckOutInput = z.input<typeof CheckOutInputSchema>;
+
+export const GateVisitInspectionPatchSchema = z.object({
+  inspectionStatus: GateInspectionStatusSchema.optional(),
+  sealNo: z.string().max(64).optional(),
+  notes: z.string().max(400).optional(),
+  proofPhoto: GateProofPhotoSchema.nullable().optional(),
+});
+export type GateVisitInspectionPatch = z.input<typeof GateVisitInspectionPatchSchema>;
 
 export const AssignDockInputSchema = z.object({
   locationId: IdSchema.optional(),
@@ -135,4 +162,18 @@ export const DockAppointmentInputSchema = z
     message: "Window end must be after window start",
   });
 export type DockAppointmentInput = z.input<typeof DockAppointmentInputSchema>;
+
+export const DockAppointmentPatchSchema = z
+  .object({
+    carrier: z.string().optional(),
+    purpose: DockPurposeSchema.optional(),
+    locationId: IdSchema.nullable().optional(),
+    windowStart: IsoDateSchema.optional(),
+    windowEnd: IsoDateSchema.optional(),
+    notes: z.string().optional(),
+  })
+  .refine((a) => !(a.windowStart && a.windowEnd) || Date.parse(a.windowEnd) > Date.parse(a.windowStart), {
+    message: "Window end must be after window start",
+  });
+export type DockAppointmentPatch = z.input<typeof DockAppointmentPatchSchema>;
 

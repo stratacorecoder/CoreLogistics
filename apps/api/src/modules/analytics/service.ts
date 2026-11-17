@@ -2,6 +2,7 @@ import {
   ON_TIME_TOLERANCE_MINUTES,
   ZONES,
   type AnalyticsSummary,
+  type FefoRiskItem,
   type Zone,
 } from "@corelogistics/contracts";
 import { many, one } from "../../db.js";
@@ -68,7 +69,7 @@ export function summary(siteId: string | undefined, days: number): AnalyticsSumm
     `SELECT id, code, site_id FROM locations WHERE kind = 'dock_door' AND active = 1${site("site_id")} ORDER BY site_id, code`,
     sp,
   );
-  const assignments = many(
+  const assignments = many<{ location_id: string; assigned_at: string; released_at: string | null }>(
     `SELECT d.location_id, d.assigned_at, d.released_at FROM dock_assignments d
      JOIN locations l ON l.id = d.location_id
      WHERE (d.released_at IS NULL OR d.released_at >= ?)${site("l.site_id")}`,
@@ -76,6 +77,9 @@ export function summary(siteId: string | undefined, days: number): AnalyticsSumm
   );
   const docks = doors.map((d) => {
     const mine = assignments.filter((a) => a.location_id === d.id);
+    const activeAssignment = mine
+      .filter((a) => !a.released_at)
+      .sort((a, b) => Date.parse(a.assigned_at) - Date.parse(b.assigned_at))[0];
     const busy = mine.reduce((sum, a) => {
       const start = Math.max(Date.parse(a.assigned_at), fromMs);
       const end = a.released_at ? Date.parse(a.released_at) : now;
@@ -88,10 +92,11 @@ export function summary(siteId: string | undefined, days: number): AnalyticsSumm
       assignments: mine.length,
       busyMinutes: Math.round(busy),
       utilizationPct: Math.round((busy / periodMinutes) * 1000) / 10,
+      activeSince: activeAssignment?.assigned_at ?? null,
     };
   });
   const turnaround = assignments
-    .filter((a) => a.released_at)
+    .filter((a): a is { location_id: string; assigned_at: string; released_at: string } => Boolean(a.released_at))
     .map((a) => (Date.parse(a.released_at) - Date.parse(a.assigned_at)) / MIN);
 
   // Storage capacity
@@ -131,6 +136,85 @@ export function summary(siteId: string | undefined, days: number): AnalyticsSumm
 
   const count = (sql: string, params: unknown[] = []) => Number(one(sql, params)!.n);
 
+  // Financial & FEFO Risk Intelligence
+  const delayPenaltyExposure = active
+    .filter((t) => t.delayed)
+    .reduce((sum, t) => sum + Math.min(35_000, Math.round(Math.max(15, t.delayMinutes) * 45)), 0);
+
+  const yardDetentionExposure = open.reduce((sum, v) => {
+    const dwellMin = (now - Date.parse(v.check_in_at)) / MIN;
+    if (dwellMin <= 120) return sum;
+    return sum + Math.min(20_000, Math.round((dwellMin - 120) * 25));
+  }, 0);
+
+  const maintCents = Number(
+    one<{ c: number | null }>(
+      `SELECT COALESCE(SUM(cost_cents), 0) AS c FROM maintenance_records WHERE closed_at IS NULL OR opened_at >= ?`,
+      [from],
+    )?.c ?? 0,
+  );
+  const maintenanceCost = Math.round(maintCents / 100);
+
+  const expiryRows = many<{
+    id: string;
+    code: string;
+    sku_code: string;
+    sku_name: string;
+    unit_weight_kg: number;
+    lot_number: string | null;
+    expiry_date: string;
+    qty: number;
+    location_code: string | null;
+    status: string;
+    site_id: string;
+  }>(
+    `SELECT h.id, h.code, s.code AS sku_code, s.name AS sku_name, s.unit_weight_kg,
+            h.lot_number, h.expiry_date, h.qty, l.code AS location_code, h.status, h.site_id
+     FROM handling_units h
+     JOIN skus s ON s.id = h.sku_id
+     LEFT JOIN locations l ON l.id = h.location_id
+     WHERE h.status IN ('received', 'sorted', 'stored', 'picked', 'staged')
+       AND h.expiry_date IS NOT NULL${site("h.site_id")}
+     ORDER BY h.expiry_date ASC
+     LIMIT 100`,
+    sp,
+  );
+
+  let expiringSoonCount = 0;
+  let expiredCount = 0;
+  let expiringUnitsQty = 0;
+  let atRiskInventoryValue = 0;
+  const fefoWatchlist: FefoRiskItem[] = [];
+
+  for (const r of expiryRows) {
+    const expMs = Date.parse(r.expiry_date);
+    if (!Number.isFinite(expMs)) continue;
+    const daysRemaining = Math.ceil((expMs - now) / (24 * 3600_000));
+    if (daysRemaining <= 0) expiredCount += 1;
+    else if (daysRemaining <= 14) expiringSoonCount += 1;
+
+    if (daysRemaining <= 14) {
+      expiringUnitsQty += Number(r.qty);
+      const unitValue = Math.max(120, Math.round(Number(r.unit_weight_kg || 1) * 180));
+      atRiskInventoryValue += Number(r.qty) * unitValue;
+    }
+    if (fefoWatchlist.length < 8) {
+      fefoWatchlist.push({
+        id: r.id,
+        huCode: r.code,
+        skuCode: r.sku_code,
+        skuName: r.sku_name,
+        lotNumber: r.lot_number ?? null,
+        expiryDate: r.expiry_date,
+        daysRemaining,
+        qty: Number(r.qty),
+        locationCode: r.location_code ?? null,
+        status: r.status,
+        siteId: r.site_id,
+      });
+    }
+  }
+
   return {
     from,
     to,
@@ -163,6 +247,17 @@ export function summary(siteId: string | undefined, days: number): AnalyticsSumm
       picks: count(`SELECT COUNT(*) AS n FROM pick_tasks WHERE status = 'open'${site("site_id")}`, sp),
       orders: count(`SELECT COUNT(*) AS n FROM orders WHERE status NOT IN ('shipped','cancelled')${site("site_id")}`, sp),
       shipments: count(`SELECT COUNT(*) AS n FROM shipments WHERE status != 'departed'${site("site_id")}`, sp),
+    },
+    risk: {
+      currency: "PHP",
+      delayPenaltyExposure,
+      yardDetentionExposure,
+      maintenanceCost,
+      expiringSoonCount,
+      expiredCount,
+      expiringUnitsQty,
+      atRiskInventoryValue,
+      fefoWatchlist,
     },
   };
 }

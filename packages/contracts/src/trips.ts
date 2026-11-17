@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { IdSchema, IsoDateSchema } from "./common.js";
+import { SiteSchema } from "./sites.js";
 
 export const TRIP_KINDS = ["inbound", "outbound", "transfer"] as const;
 export const TripKindSchema = z.enum(TRIP_KINDS);
@@ -105,11 +106,23 @@ export const ISSUE_KINDS = ["delay", "breakdown", "accident", "cargo", "other"] 
 export const IssueKindSchema = z.enum(ISSUE_KINDS);
 export type IssueKind = z.infer<typeof IssueKindSchema>;
 
+const ProofPhotoSchema = z
+  .string()
+  .trim()
+  .max(250_000)
+  .refine(
+    (val) => !val || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(val),
+    { message: "Photo proof must be a valid base64 PNG, JPEG, or WebP data URL" },
+  )
+  .optional()
+  .describe("Optional base64 photo data URL (data:image/...)");
+
 export const TripIssueInputSchema = z.object({
   kind: IssueKindSchema,
   message: z.string().min(1).max(500),
   lat: z.number().optional(),
   lng: z.number().optional(),
+  proofPhoto: ProofPhotoSchema,
 });
 export type TripIssueInput = z.input<typeof TripIssueInputSchema>;
 
@@ -128,6 +141,45 @@ export const TripCompleteInputSchema = z.object({
     )
     .optional()
     .describe("Base64 image data URL (data:image/...)"),
+  proofPhoto: ProofPhotoSchema,
 });
 export type TripCompleteInput = z.input<typeof TripCompleteInputSchema>;
+
+export const WaybillLineSchema = z.object({
+  orderCode: z.string(),
+  customerName: z.string(),
+  skuCode: z.string(),
+  skuName: z.string(),
+  qty: z.number().int(),
+  pickedQty: z.number().int(),
+  unitWeightKg: z.number(),
+});
+
+export const WaybillUnitSchema = z.object({
+  code: z.string(),
+  kind: z.string(),
+  skuCode: z.string(),
+  skuName: z.string(),
+  qty: z.number().int(),
+  lotNumber: z.string().nullable(),
+  expiryDate: z.string().nullable(),
+});
+
+export const WaybillSchema = z.object({
+  trip: TripSchema,
+  origin: SiteSchema,
+  destination: SiteSchema,
+  vehiclePlate: z.string().nullable(),
+  trailerCode: z.string().nullable(),
+  driverName: z.string().nullable(),
+  driverPhone: z.string().nullable(),
+  shipments: z.array(z.object({ id: IdSchema, code: z.string(), status: z.string(), dockCode: z.string().nullable() })),
+  lines: z.array(WaybillLineSchema),
+  handlingUnits: z.array(WaybillUnitSchema),
+  totalUnits: z.number().int(),
+  totalWeightKg: z.number(),
+  proofPhotos: z.array(z.object({ label: z.string(), dataUrl: z.string() })),
+  generatedAt: z.string(),
+});
+export type Waybill = z.infer<typeof WaybillSchema>;
 

@@ -13,6 +13,7 @@ export const DockUtilizationSchema = z.object({
   assignments: z.number().int(),
   busyMinutes: z.number().int(),
   utilizationPct: z.number(),
+  activeSince: z.string().nullable(),
 });
 
 export const ZoneCapacitySchema = z.object({
@@ -29,6 +30,34 @@ export const ThroughputDaySchema = z.object({
   gateIn: z.number().int(),
   gateOut: z.number().int(),
 });
+
+export const FefoRiskItemSchema = z.object({
+  id: IdSchema,
+  huCode: z.string(),
+  skuCode: z.string(),
+  skuName: z.string(),
+  lotNumber: z.string().nullable(),
+  expiryDate: z.string(),
+  daysRemaining: z.number().int(),
+  qty: z.number().int(),
+  locationCode: z.string().nullable(),
+  status: z.string(),
+  siteId: IdSchema,
+});
+export type FefoRiskItem = z.infer<typeof FefoRiskItemSchema>;
+
+export const FinancialRiskSummarySchema = z.object({
+  currency: z.string(),
+  delayPenaltyExposure: z.number(),
+  yardDetentionExposure: z.number(),
+  maintenanceCost: z.number(),
+  expiringSoonCount: z.number().int(),
+  expiredCount: z.number().int(),
+  expiringUnitsQty: z.number().int(),
+  atRiskInventoryValue: z.number(),
+  fefoWatchlist: z.array(FefoRiskItemSchema),
+});
+export type FinancialRiskSummary = z.infer<typeof FinancialRiskSummarySchema>;
 
 export const AnalyticsSummarySchema = z.object({
   from: z.string(),
@@ -64,5 +93,6 @@ export const AnalyticsSummarySchema = z.object({
     orders: z.number().int(),
     shipments: z.number().int(),
   }),
+  risk: FinancialRiskSummarySchema,
 });
 export type AnalyticsSummary = z.infer<typeof AnalyticsSummarySchema>;

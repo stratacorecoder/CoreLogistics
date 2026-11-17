@@ -7,11 +7,12 @@ import {
   type TripCompleteInput,
   type TripIssueInput,
   type TripStop,
+  type Waybill,
 } from "@corelogistics/contracts";
 import type { z } from "zod";
 import { many, newId, nextCode, one, placeholders, run, splitList, tx, type Row } from "../../db.js";
 import { badRequest, conflict, must } from "../../errors.js";
-import { at, emit, type Ctx } from "../../events.js";
+import { at, emit, listEvents, type Ctx } from "../../events.js";
 import {
   getDriver,
   getVehicle,
@@ -436,7 +437,7 @@ export function completeTrip(id: string, ctx: Ctx, pod?: TripCompleteInput): Tri
     if (t.status === "completed") return t;
     if (t.status !== "arrived") t = arriveTrip(t.id, ctx);
     const when = at(ctx);
-    const hasPod = Boolean(pod?.recipient || pod?.notes || pod?.signature);
+    const hasPod = Boolean(pod?.recipient || pod?.notes || pod?.signature || pod?.proofPhoto);
     run(
       "UPDATE trips SET status = 'completed', completed_at = ?, pod_recipient = ?, pod_notes = ?, pod_signature = ?, pod_at = ? WHERE id = ?",
       [when, pod?.recipient ?? null, pod?.notes ?? "", pod?.signature ?? null, hasPod ? when : null, t.id],
@@ -451,7 +452,7 @@ export function completeTrip(id: string, ctx: Ctx, pod?: TripCompleteInput): Tri
       vehicleId: t.vehicleId,
       driverId: t.driverId,
       message: `Trip ${tripLabel(trip)} completed${podMsg}`,
-      payload: hasPod ? { recipient: pod?.recipient, notes: pod?.notes } : undefined,
+      payload: hasPod ? { recipient: pod?.recipient, notes: pod?.notes, proofPhoto: pod?.proofPhoto ?? null } : undefined,
     });
     return trip;
   });
@@ -508,7 +509,12 @@ export function reportIssue(id: string, input: TripIssueInput, ctx: Ctx) {
       vehicleId: t.vehicleId,
       driverId: t.driverId,
       message: `${t.code} ${input.kind}: ${input.message}`,
-      payload: { kind: input.kind, lat: input.lat ?? null, lng: input.lng ?? null },
+      payload: {
+        kind: input.kind,
+        lat: input.lat ?? null,
+        lng: input.lng ?? null,
+        proofPhoto: input.proofPhoto ?? null,
+      },
     });
     if (input.kind === "breakdown" && t.vehicleId) {
       openMaintenance(
@@ -518,4 +524,117 @@ export function reportIssue(id: string, input: TripIssueInput, ctx: Ctx) {
     }
     return event;
   });
+}
+
+export function getTripWaybill(id: string): Waybill {
+  const trip = getTrip(id);
+  const origin = getSite(trip.originSiteId);
+  const destination = getSite(trip.destinationSiteId);
+  const vehicle = trip.vehicleId ? getVehicle(trip.vehicleId) : null;
+  const trailer = trip.trailerId ? getVehicle(trip.trailerId) : null;
+  const driver = trip.driverId ? getDriver(trip.driverId) : null;
+
+  const shipments = many<{ id: string; code: string; status: string; dock_code: string | null }>(
+    `SELECT s.id, s.code, s.status, l.code AS dock_code
+     FROM shipments s
+     LEFT JOIN locations l ON l.id = s.dock_location_id
+     WHERE s.trip_id = ?
+     ORDER BY s.created_at ASC`,
+    [trip.id],
+  ).map((s) => ({ id: s.id, code: s.code, status: s.status, dockCode: s.dock_code ?? null }));
+
+  const shipmentIds = shipments.map((s) => s.id);
+  const lines = shipmentIds.length
+    ? many<{
+        order_code: string;
+        customer_name: string;
+        sku_code: string;
+        sku_name: string;
+        qty: number;
+        picked_qty: number;
+        unit_weight_kg: number;
+      }>(
+        `SELECT o.code AS order_code, cs.name AS customer_name, sk.code AS sku_code, sk.name AS sku_name,
+                ol.qty, ol.picked_qty, sk.unit_weight_kg
+         FROM orders o
+         JOIN sites cs ON cs.id = o.customer_site_id
+         JOIN order_lines ol ON ol.order_id = o.id
+         JOIN skus sk ON sk.id = ol.sku_id
+         WHERE o.shipment_id IN (${placeholders(shipmentIds.length)})
+         ORDER BY o.code, sk.code`,
+        shipmentIds,
+      ).map((r) => ({
+        orderCode: r.order_code,
+        customerName: r.customer_name,
+        skuCode: r.sku_code,
+        skuName: r.sku_name,
+        qty: Number(r.qty),
+        pickedQty: Number(r.picked_qty),
+        unitWeightKg: Number(r.unit_weight_kg),
+      }))
+    : [];
+
+  const handlingUnits = shipmentIds.length
+    ? many<{
+        code: string;
+        kind: string;
+        sku_code: string;
+        sku_name: string;
+        qty: number;
+        lot_number: string | null;
+        expiry_date: string | null;
+        unit_weight_kg: number;
+      }>(
+        `SELECT h.code, h.kind, sk.code AS sku_code, sk.name AS sku_name, h.qty,
+                h.lot_number, h.expiry_date, sk.unit_weight_kg
+         FROM handling_units h
+         JOIN skus sk ON sk.id = h.sku_id
+         WHERE h.shipment_id IN (${placeholders(shipmentIds.length)})
+         ORDER BY h.code`,
+        shipmentIds,
+      ).map((h) => ({
+        code: h.code,
+        kind: h.kind,
+        skuCode: h.sku_code,
+        skuName: h.sku_name,
+        qty: Number(h.qty),
+        lotNumber: h.lot_number ?? null,
+        expiryDate: h.expiry_date ?? null,
+      }))
+    : [];
+
+  const totalUnits = lines.length
+    ? lines.reduce((sum, l) => sum + l.qty, 0)
+    : handlingUnits.reduce((sum, h) => sum + h.qty, 0);
+
+  const totalWeightKg = Math.round(
+    lines.length
+      ? lines.reduce((sum, l) => sum + l.qty * l.unitWeightKg, 0)
+      : 0,
+  );
+
+  const events = listEvents({ tripId: trip.id, limit: 100 });
+  const proofPhotos = events
+    .map((e) => ({
+      label: e.message,
+      dataUrl: typeof e.payload?.proofPhoto === "string" ? e.payload.proofPhoto : null,
+    }))
+    .filter((p): p is { label: string; dataUrl: string } => Boolean(p.dataUrl));
+
+  return {
+    trip,
+    origin,
+    destination,
+    vehiclePlate: vehicle?.plate ?? null,
+    trailerCode: trailer?.code ?? null,
+    driverName: driver?.name ?? null,
+    driverPhone: driver?.phone ?? null,
+    shipments,
+    lines,
+    handlingUnits,
+    totalUnits,
+    totalWeightKg,
+    proofPhotos,
+    generatedAt: new Date().toISOString(),
+  };
 }

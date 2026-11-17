@@ -1701,4 +1701,235 @@ describe("CoreLogistics Enterprise Suite (Auth, E2E Flow, FEFO, e-POD, Appointme
       assert.equal(renameOccupied.statusCode, 409);
     });
   });
+
+  describe("10. Tap & Nudge Operations Messaging & Photo Proof", () => {
+    it("allows Tower to send priority nudges and target floor operators to acknowledge with photo proof", async () => {
+      const wh = one("SELECT id FROM sites WHERE code = 'WH-C'")!;
+
+      // Non-tower cannot create nudges
+      const blocked = await app.inject({
+        method: "POST",
+        url: "/ops/nudges",
+        headers: { "x-session": warehouseToken },
+        payload: { targetRole: "warehouse", siteId: wh.id, priority: "urgent", message: "Unauthorized nudge" },
+      });
+      assert.equal(blocked.statusCode, 403);
+
+      // Tower sends urgent nudge to warehouse
+      const sent = await app.inject({
+        method: "POST",
+        url: "/ops/nudges",
+        headers: { "x-session": towerToken },
+        payload: {
+          targetRole: "warehouse",
+          siteId: wh.id,
+          locationCode: "D01",
+          priority: "urgent",
+          message: "Expedite unload at Dock D01",
+        },
+      });
+      assert.equal(sent.statusCode, 200);
+      const nudge = JSON.parse(sent.payload);
+      assert.equal(nudge.targetRole, "warehouse");
+      assert.equal(nudge.priority, "urgent");
+      assert.equal(nudge.ackedAt, null);
+
+      // Warehouse sees it in open nudges
+      const openRes = await app.inject({
+        method: "GET",
+        url: `/ops/nudges?targetRole=warehouse&siteId=${wh.id}&openOnly=true`,
+        headers: { "x-session": warehouseToken },
+      });
+      assert.equal(openRes.statusCode, 200);
+      const openList = JSON.parse(openRes.payload);
+      assert.ok(openList.some((n: { id: number }) => n.id === nudge.id));
+
+      // Gate operator cannot acknowledge a warehouse-targeted nudge
+      const gateLogin = await app.inject({
+        method: "POST",
+        url: "/auth/login",
+        payload: { username: "rico", password: "yard" },
+      });
+      const localGateToken = JSON.parse(gateLogin.payload).token as string;
+      const wrongRole = await app.inject({
+        method: "POST",
+        url: `/ops/nudges/${nudge.id}/ack`,
+        headers: { "x-session": localGateToken },
+        payload: { note: "Wrong station" },
+      });
+      assert.equal(wrongRole.statusCode, 403);
+
+      // Warehouse acknowledges with note and valid PNG proof photo
+      const samplePhoto = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+      const ackRes = await app.inject({
+        method: "POST",
+        url: `/ops/nudges/${nudge.id}/ack`,
+        headers: { "x-session": warehouseToken },
+        payload: { note: "On Dock D01 now", proofPhoto: samplePhoto },
+      });
+      assert.equal(ackRes.statusCode, 200);
+      const acked = JSON.parse(ackRes.payload);
+      assert.ok(acked.ackedAt);
+      assert.equal(acked.ackNote, "On Dock D01 now");
+      assert.equal(acked.ackPhoto, samplePhoto);
+
+      // Confirmed nudge disappears from openOnly=true
+      const openAfter = await app.inject({
+        method: "GET",
+        url: `/ops/nudges?targetRole=warehouse&siteId=${wh.id}&openOnly=true`,
+        headers: { "x-session": warehouseToken },
+      });
+      const afterList = JSON.parse(openAfter.payload);
+      assert.equal(afterList.some((n: { id: number }) => n.id === nudge.id), false);
+    });
+  });
+
+  describe("11. Financial & FEFO Risk Analytics and Printable Waybill", () => {
+    it("computes financial & FEFO expiry risk in analytics summary and serves structured trip waybills", async () => {
+      const wh = one("SELECT id FROM sites WHERE code = 'WH-C'")!;
+
+      const analyticsRes = await app.inject({
+        method: "GET",
+        url: `/analytics/summary?siteId=${wh.id}&days=7`,
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(analyticsRes.statusCode, 200);
+      const summary = JSON.parse(analyticsRes.payload);
+      assert.equal(summary.risk.currency, "PHP");
+      assert.equal(typeof summary.risk.delayPenaltyExposure, "number");
+      assert.equal(typeof summary.risk.yardDetentionExposure, "number");
+      assert.equal(typeof summary.risk.atRiskInventoryValue, "number");
+      assert.ok(Array.isArray(summary.risk.fefoWatchlist));
+      assert.ok(Array.isArray(summary.docks));
+      for (const d of summary.docks) {
+        assert.ok(d.activeSince === null || typeof d.activeSince === "string");
+      }
+
+      const anyTrip = one("SELECT id FROM trips LIMIT 1")!;
+      const waybillRes = await app.inject({
+        method: "GET",
+        url: `/trips/${anyTrip.id}/waybill`,
+        headers: { "x-session": towerToken },
+      });
+      assert.equal(waybillRes.statusCode, 200);
+      const waybill = JSON.parse(waybillRes.payload);
+      assert.equal(waybill.trip.id, anyTrip.id);
+      assert.ok(waybill.origin.code);
+      assert.ok(waybill.destination.code);
+      assert.ok(Array.isArray(waybill.lines));
+      assert.ok(Array.isArray(waybill.handlingUnits));
+    });
+  });
+
+  describe("12. Gate Control Desk: Appointment Re-Slotting, Inspection Hold, Proof Photos & Gate Nudge", () => {
+    it("supports gate proof photos, security hold/clearance, appointment rescheduling, and gate-initiated nudges", async () => {
+      const wh = one("SELECT id FROM sites WHERE code = 'WH-C'")!;
+      const docks = many("SELECT id, code FROM locations WHERE site_id = ? AND kind = 'dock_door' AND active = 1 ORDER BY code", [wh.id]);
+      assert.ok(docks.length >= 2);
+
+      const gateLogin = await app.inject({
+        method: "POST",
+        url: "/auth/login",
+        payload: { username: "rico", password: "yard" },
+      });
+      assert.equal(gateLogin.statusCode, 200);
+      const localGateToken = JSON.parse(gateLogin.payload).token as string;
+
+      // Schedule and re-slot an appointment
+      const startIso = new Date(Date.now() + 2 * 3600_000).toISOString();
+      const endIso = new Date(Date.now() + 3 * 3600_000).toISOString();
+      const createdAppt = await app.inject({
+        method: "POST",
+        url: "/gate/appointments",
+        headers: { "x-session": localGateToken },
+        payload: {
+          siteId: wh.id,
+          plate: "GTE-8801",
+          carrier: "PeakHaul",
+          purpose: "unload",
+          locationId: docks[0]!.id,
+          windowStart: startIso,
+          windowEnd: endIso,
+        },
+      });
+      assert.equal(createdAppt.statusCode, 200);
+      const appt = JSON.parse(createdAppt.payload);
+
+      const nextStart = new Date(Date.now() + 4 * 3600_000).toISOString();
+      const nextEnd = new Date(Date.now() + 5 * 3600_000).toISOString();
+      const patchedAppt = await app.inject({
+        method: "PATCH",
+        url: `/gate/appointments/${appt.id}`,
+        headers: { "x-session": localGateToken },
+        payload: {
+          locationId: docks[1]!.id,
+          windowStart: nextStart,
+          windowEnd: nextEnd,
+        },
+      });
+      assert.equal(patchedAppt.statusCode, 200);
+      const updatedAppt = JSON.parse(patchedAppt.payload);
+      assert.equal(updatedAppt.locationId, docks[1]!.id);
+      assert.equal(updatedAppt.windowStart, nextStart);
+
+      // Gate check-in with condition proof photo & security hold -> inspect cleared -> check out with out photo
+      run(
+        `INSERT OR REPLACE INTO vehicles (id, code, plate, kind, model, status, home_site_id)
+         VALUES ('veh_gate_ctl', 'V-GCTL', 'GTE-8801', 'truck', 'Hino 500', 'available', ?)`,
+        [wh.id],
+      );
+      const samplePhoto = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+      const gateIn = await app.inject({
+        method: "POST",
+        url: "/gate/check-in",
+        headers: { "x-session": localGateToken },
+        payload: {
+          siteId: wh.id,
+          plate: "GTE-8801",
+          sealNo: "SL-IN-99",
+          inspectionStatus: "hold",
+          proofPhoto: samplePhoto,
+        },
+      });
+      assert.equal(gateIn.statusCode, 200);
+      const visIn = JSON.parse(gateIn.payload);
+      assert.equal(visIn.inspectionStatus, "hold");
+      assert.equal(visIn.proofPhotoIn, samplePhoto);
+
+      const cleared = await app.inject({
+        method: "PATCH",
+        url: `/gate/visits/${visIn.id}/inspection`,
+        headers: { "x-session": localGateToken },
+        payload: { inspectionStatus: "passed", notes: "Seal re-verified" },
+      });
+      assert.equal(cleared.statusCode, 200);
+      assert.equal(JSON.parse(cleared.payload).inspectionStatus, "passed");
+
+      // Gate operator sends nudge to warehouse floor
+      const gateNudge = await app.inject({
+        method: "POST",
+        url: "/ops/nudges",
+        headers: { "x-session": localGateToken },
+        payload: {
+          targetRole: "warehouse",
+          siteId: wh.id,
+          locationCode: docks[1]!.code,
+          priority: "urgent",
+          message: "Trailer GTE-8801 cleared at gate",
+        },
+      });
+      assert.equal(gateNudge.statusCode, 200);
+
+      const gateOut = await app.inject({
+        method: "POST",
+        url: "/gate/check-out",
+        headers: { "x-session": localGateToken },
+        payload: { visitId: visIn.id, sealNo: "SL-OUT-10", proofPhoto: samplePhoto },
+      });
+      assert.equal(gateOut.statusCode, 200);
+      const visOut = JSON.parse(gateOut.payload);
+      assert.equal(visOut.proofPhotoOut, samplePhoto);
+      assert.equal(visOut.sealOut, "SL-OUT-10");
+    });
+  });
 });

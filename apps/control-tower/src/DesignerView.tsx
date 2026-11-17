@@ -24,6 +24,7 @@ import {
 } from "@corelogistics/ui";
 import { Minus, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { NewSiteModal } from "./NewSiteModal";
 
 type Tool = CellKind | "select";
 const ZONED: CellKind[] = ["rack", "sort_lane", "staging", "dock_door", "yard_slot"];
@@ -59,7 +60,7 @@ const DESIGNER_TOOLS: DesignerToolDef[] = [
   { id: "office", label: "Office", color: "var(--map-office)" },
 ];
 
-export function DesignerView({ siteId }: { siteId: string }) {
+export function DesignerView({ siteId, onSiteCreated }: { siteId: string; onSiteCreated?: (id: string) => void }) {
   const remote = useApi<SiteLayout>(`/sites/${siteId}/layout`, { live: false });
   const [draft, setDraft] = useState<SiteLayout | null>(null);
   const [tool, setTool] = useState<Tool>("rack");
@@ -68,6 +69,7 @@ export function DesignerView({ siteId }: { siteId: string }) {
   const [defaultCapacity, setDefaultCapacity] = useState(10);
   const [cellSize, setCellSize] = useState(32);
   const [selected, setSelected] = useState<string | null>(null);
+  const [addingSite, setAddingSite] = useState(false);
   const painting = useRef(false);
   const mapWrapRef = useRef<HTMLDivElement>(null);
   const { busy, run } = useAction();
@@ -291,6 +293,9 @@ export function DesignerView({ siteId }: { siteId: string }) {
         actions={
           <div className="row" style={{ gap: 10 }}>
             <MapLegend />
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAddingSite(true)}>
+              <Plus size={14} /> Add new site
+            </button>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
@@ -452,6 +457,19 @@ export function DesignerView({ siteId }: { siteId: string }) {
           )}
         </Panel>
       </div>
+      {addingSite ? (
+        <NewSiteModal
+          initialKind="warehouse"
+          allowDesignRedirect={false}
+          onClose={() => setAddingSite(false)}
+          onCreated={(site) => {
+            setAddingSite(false);
+            if (site.kind === "warehouse" || site.kind === "depot") {
+              onSiteCreated?.(site.id);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }

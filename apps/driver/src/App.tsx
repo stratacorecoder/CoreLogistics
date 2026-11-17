@@ -9,9 +9,11 @@ import {
   fmtTime,
   fromNow,
   Panel,
+  PhotoProofPicker,
   Pill,
   qs,
   LoginPage,
+  NudgeBanner,
   setActor,
   useAuth,
   ScanButton,
@@ -73,6 +75,7 @@ function DriverHome({ driver, refs }: { driver: Driver; refs: Refs }) {
         <span className="drv-hello">Hi, {driver.name.split(" ")[0]}</span>
         <Pill value={driver.status} />
       </div>
+      <NudgeBanner role="driver" driverId={driver.id} />
       <ErrorNote error={active.error || done.error} />
       {current ? <CurrentTrip key={current.id} trip={current} refs={refs} now={now} /> : <Panel title="No active trip"><Empty>Nothing assigned right now. Dispatch will send your next run here.</Empty></Panel>}
       {later.length ? (
@@ -218,6 +221,7 @@ function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number 
   const [recipient, setRecipient] = useState("");
   const [podNotes, setPodNotes] = useState("");
   const [signature, setSignature] = useState("");
+  const [podPhoto, setPodPhoto] = useState("");
   const act = (path: string, msg: string) => run(() => api.post<Trip>(`/trips/${trip.id}/${path}`), msg);
   const nextStop = trip.status === "in_transit" ? trip.stops.find((s) => !s.departedAt) : undefined;
   const waypoint = nextStop && nextStop.siteId !== trip.destinationSiteId ? nextStop : undefined;
@@ -335,6 +339,7 @@ function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number 
             </Field>
             <p className="muted small">A scanned code is stored as a delivery-note reference. It does not prove the document or the seal.</p>
             <SignaturePad onSign={setSignature} onClear={() => setSignature("")} />
+            <PhotoProofPicker value={podPhoto} onChange={setPodPhoto} label="Attach delivery / seal photo" />
             <button
               className="btn btn-primary btn-block"
               style={{ marginTop: 8 }}
@@ -346,6 +351,7 @@ function CurrentTrip({ trip, refs, now }: { trip: Trip; refs: Refs; now: number 
                       recipient: recipient || undefined,
                       notes: podNotes || undefined,
                       signature: signature || undefined,
+                      proofPhoto: podPhoto || undefined,
                     }),
                   "Trip completed with e-POD",
                 )
@@ -373,6 +379,7 @@ function IssueForm({ trip, onDone }: { trip: Trip; onDone: () => void }) {
   const [kind, setKind] = useState<IssueKind>("delay");
   const [message, setMessage] = useState("");
   const [shareLocation, setShareLocation] = useState(true);
+  const [proofPhoto, setProofPhoto] = useState("");
 
   const position = () =>
     new Promise<{ lat?: number; lng?: number }>((resolve) => {
@@ -398,6 +405,7 @@ function IssueForm({ trip, onDone }: { trip: Trip; onDone: () => void }) {
         <Field label="What happened?">
           <textarea className="textarea" value={message} onChange={(e) => setMessage(e.target.value)} />
         </Field>
+        <PhotoProofPicker value={proofPhoto} onChange={setProofPhoto} label="Attach photo of issue" />
         <label className="row small">
           <input type="checkbox" checked={shareLocation} onChange={(e) => setShareLocation(e.target.checked)} />
           Share my location
@@ -406,7 +414,16 @@ function IssueForm({ trip, onDone }: { trip: Trip; onDone: () => void }) {
           className="btn btn-danger btn-block"
           disabled={busy || !message}
           onClick={async () => {
-            const ok = await run(async () => api.post(`/trips/${trip.id}/issues`, { kind, message, ...(await position()) }), "Dispatch has been notified");
+            const ok = await run(
+              async () =>
+                api.post(`/trips/${trip.id}/issues`, {
+                  kind,
+                  message,
+                  ...(proofPhoto ? { proofPhoto } : {}),
+                  ...(await position()),
+                }),
+              "Dispatch has been notified",
+            );
             if (ok) onDone();
           }}
         >

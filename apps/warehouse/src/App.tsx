@@ -1,5 +1,5 @@
 import type { Order, PutawayTask, Receipt, Shipment } from "@corelogistics/contracts";
-import { ActorBadge, DeskNotice, Empty, LoginPage, qs, Shell, SitePicker, Tabs, useApi, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
+import { ActorBadge, DeskNotice, Empty, LoginPage, NudgeBanner, qs, Shell, SitePicker, Tabs, useApi, useAuth, useLocalState, useRefs } from "@corelogistics/ui";
 import { lazy, Suspense, useCallback } from "react";
 import { ReceiveView } from "./ReceiveView";
 
@@ -66,6 +66,7 @@ export default function App() {
     >
       {siteId ? (
         <div className="wh" style={{ display: "contents" }}>
+          <NudgeBanner role="warehouse" siteId={siteId} />
           <Suspense fallback={<div className="page"><Empty>Loading…</Empty></div>}>
             {view === "receive" ? <ReceiveView siteId={siteId} refs={refs} onSort={() => setView("sort")} /> : null}
             {view === "sort" ? <SortView siteId={siteId} refs={refs} onPutaway={() => setView("putaway")} /> : null}

@@ -4,10 +4,10 @@ import { useEffect, useRef, type RefObject } from "react";
 
 gsap.registerPlugin(useGSAP);
 
-const ENTER =
-  ".panel, .trip-card, .live-kpi-card, .wh-kpi-item, .on-site-truck-card, .wh-receipt-card, .gate-expected-item, .modal, .toast";
+const ENTER = ".panel, .modal, .toast";
 
-const SKIP = ".site-map-frame, .map-wrap, .table, .list, .activity-timeline-list";
+const SKIP =
+  ".site-map-frame, .sitemap-3d-shell, .map-wrap, .table, .list, .activity-timeline-list, .live-trips-list, .on-site-truck-list";
 
 function harvest(node: Node, out: Element[]) {
   if (!(node instanceof Element) || out.length >= 16) return;
@@ -28,9 +28,8 @@ function play(nodes: Element[], seen: WeakSet<Element>) {
   if (!fresh.length) return;
   gsap.from(fresh, {
     autoAlpha: 0,
-    y: 12,
-    duration: 0.32,
-    stagger: { each: 0.02, ease: "none" },
+    y: 6,
+    duration: 0.18,
     ease: "power2.out",
     clearProps: "opacity,visibility,transform",
   });

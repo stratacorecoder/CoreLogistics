@@ -1,5 +1,5 @@
 import { formatKg, type HandlingUnit, type Order, type Shipment, type ShipmentRemoveResult, type Trip } from "@corelogistics/contracts";
-import { api, Empty, ErrorNote, Field, fmtTime, Modal, Panel, Pill, Progress, qs, useAction, useApi, type Refs } from "@corelogistics/ui";
+import { api, Empty, ErrorNote, Field, fmtTime, Modal, Panel, Pill, Progress, qs, useAction, useApi, WaybillModal, type Refs } from "@corelogistics/ui";
 import { useEffect, useState, type CSSProperties } from "react";
 
 const capTone = (used: number, cap: number | null) => (cap == null ? undefined : used > cap * 0.95 ? "danger" : used > cap * 0.8 ? "warn" : "ok");
@@ -82,6 +82,7 @@ function ShipmentPanel({ shipment, trips, allTrips, refs }: { shipment: Shipment
   });
   const { busy, run } = useAction();
   const [pick, setPick] = useState<Set<string>>(new Set());
+  const [waybillOpen, setWaybillOpen] = useState(false);
   const trip = allTrips.find((t) => t.id === shipment.tripId);
   const mine = (hus.data ?? []).filter((h) => h.shipmentId === shipment.id || (h.orderId && shipment.orderIds.includes(h.orderId)));
   const xd = (crossDock.data ?? []).filter((h) => trip && h.destinationSiteId === trip.destinationSiteId);
@@ -89,7 +90,19 @@ function ShipmentPanel({ shipment, trips, allTrips, refs }: { shipment: Shipment
 
   return (
     <div className="stack wh-detail-stack">
-      <Panel title={`${shipment.code}`} actions={<Pill value={shipment.status} />}>
+      <Panel
+        title={`${shipment.code}`}
+        actions={
+          <div className="row" style={{ gap: 6 }}>
+            {shipment.tripId ? (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWaybillOpen(true)}>
+                Waybill
+              </button>
+            ) : null}
+            <Pill value={shipment.status} />
+          </div>
+        }
+      >
         <div className="stack">
           {shipment.status === "planning" ? (
             <Field label="Trip">
@@ -250,6 +263,7 @@ function ShipmentPanel({ shipment, trips, allTrips, refs }: { shipment: Shipment
           </div>
         </Panel>
       ) : null}
+      {waybillOpen && shipment.tripId ? <WaybillModal tripId={shipment.tripId} onClose={() => setWaybillOpen(false)} /> : null}
     </div>
   );
 }

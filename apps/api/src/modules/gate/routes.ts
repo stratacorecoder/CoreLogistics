@@ -4,9 +4,11 @@ import {
   CheckInInputSchema,
   CheckOutInputSchema,
   DockAppointmentInputSchema,
+  DockAppointmentPatchSchema,
   DockAppointmentSchema,
   DockSuggestionSchema,
   ExpectedTripSchema,
+  GateVisitInspectionPatchSchema,
   GateVisitSchema,
   IdParamsSchema,
   MoveYardInputSchema,
@@ -25,11 +27,13 @@ import {
   createAppointment,
   expectedAtSite,
   getVisit,
+  inspectVisit,
   listAppointments,
   listVisits,
   moveInYard,
   releaseDock,
   suggestDock,
+  updateAppointment,
 } from "./service.js";
 
 export default async function gateRoutes(app: FastifyInstance) {
@@ -75,6 +79,19 @@ export default async function gateRoutes(app: FastifyInstance) {
       },
     },
     async (req) => cancelAppointment(req.params.id, ctxOf(req)),
+  );
+  r.patch(
+    "/gate/appointments/:id",
+    {
+      schema: {
+        tags,
+        summary: "Reschedule or re-slot a scheduled dock appointment",
+        params: IdParamsSchema,
+        body: DockAppointmentPatchSchema,
+        response: { 200: DockAppointmentSchema },
+      },
+    },
+    async (req) => updateAppointment(req.params.id, req.body, ctxOf(req)),
   );
 
   r.get(
@@ -126,5 +143,18 @@ export default async function gateRoutes(app: FastifyInstance) {
     "/gate/visits/:id/yard",
     { schema: { tags, params: IdParamsSchema, body: MoveYardInputSchema, ...visit } },
     async (req) => moveInYard(req.params.id, req.body.locationId, ctxOf(req)),
+  );
+  r.patch(
+    "/gate/visits/:id/inspection",
+    {
+      schema: {
+        tags,
+        summary: "Update gate security inspection status, seal, notes, or photo proof",
+        params: IdParamsSchema,
+        body: GateVisitInspectionPatchSchema,
+        ...visit,
+      },
+    },
+    async (req) => inspectVisit(req.params.id, req.body, ctxOf(req)),
   );
 }

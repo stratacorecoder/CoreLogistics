@@ -429,7 +429,17 @@ export function EventFeed({ events, empty = "No events yet" }: { events: EventRe
   );
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({
+  title,
+  onClose,
+  wide = false,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  wide?: boolean;
+  children: ReactNode;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -437,7 +447,14 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   }, [onClose]);
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={wide ? { width: "min(94vw, 960px)", maxWidth: 960 } : undefined}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="modal-head">
           <h3>{title}</h3>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>

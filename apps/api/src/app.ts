@@ -18,6 +18,7 @@ import { getCopilotMonitoring, initCopilot } from "./modules/copilot/worker.js";
 import fleetRoutes from "./modules/fleet/routes.js";
 import gateRoutes from "./modules/gate/routes.js";
 import ingestRoutes from "./modules/ingest/routes.js";
+import opsRoutes from "./modules/ops/routes.js";
 import outboundRoutes from "./modules/outbound/routes.js";
 import siteRoutes from "./modules/sites/routes.js";
 import streamRoutes from "./modules/stream/routes.js";
@@ -112,8 +113,40 @@ function safeDecodeSegment(segment: string): string {
   }
 }
 
+const NUDGE_ACK_RE = /^\/ops\/nudges\/(\d+)\/ack$/;
+
 function authorizeWrite(method: string, path: string, user: SessionUser) {
   if (user.role === "tower") return;
+
+  if (method === "POST") {
+    const nudgeMatch = NUDGE_ACK_RE.exec(path);
+    if (nudgeMatch) {
+      const nudgeRow = one<{ driver_id: string | null; payload: string }>(
+        "SELECT driver_id, payload FROM events WHERE id = ? AND type = 'ops.nudge'",
+        [Number(nudgeMatch[1])],
+      );
+      if (nudgeRow) {
+        let targetRole: string | undefined;
+        try {
+          targetRole = (JSON.parse(nudgeRow.payload || "{}") as { targetRole?: string }).targetRole;
+        } catch {
+          targetRole = undefined;
+        }
+        if (targetRole && targetRole !== user.role) {
+          throw forbidden(`Only ${targetRole} or tower operators can acknowledge this nudge`);
+        }
+        if (user.role === "driver" && nudgeRow.driver_id && nudgeRow.driver_id !== user.driverId) {
+          throw forbidden("You may only acknowledge nudges addressed to you");
+        }
+      }
+      return;
+    }
+  }
+
+  if (method === "POST" && path === "/ops/nudges") {
+    if (user.role === "gate") return;
+    throw forbidden("Control Tower or Gate operator role required");
+  }
 
   if (path === "/gate" || path.startsWith("/gate/")) {
     if (user.role !== "gate") throw forbidden("Gate operator or planner role required");
@@ -280,6 +313,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   await app.register(ingestRoutes);
   await app.register(analyticsRoutes);
   await app.register(copilotRoutes);
+  await app.register(opsRoutes);
   await app.register(streamRoutes);
 
   initCopilot(app);

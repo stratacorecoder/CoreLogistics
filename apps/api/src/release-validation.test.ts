@@ -48,8 +48,9 @@ describe("Release validation", () => {
       assert.equal(empty.sites, 0);
       assert.equal(empty.users, 0);
       assert.equal(empty.actor, true);
-      assert.equal(empty.migrations.length, 8);
+      assert.equal(empty.migrations.length, 9);
       assert.ok(empty.migrations.includes("008_copilot_actor.sql"));
+      assert.ok(empty.migrations.includes("009_gate_control.sql"));
 
       const demo = probe(dir, true, "status");
       assert.equal(demo.seeded, true);

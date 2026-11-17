@@ -8,6 +8,7 @@ import {
   TripQuerySchema,
   TripSchema,
   TripStopParamsSchema,
+  WaybillSchema,
 } from "@corelogistics/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -23,6 +24,7 @@ import {
   departTrip,
   dispatchTrip,
   getTrip,
+  getTripWaybill,
   listTrips,
   reportIssue,
   stopEvent,
@@ -136,6 +138,21 @@ export default async function tripRoutes(app: FastifyInstance) {
     async (req) => {
       assertAssignedDriver(req, req.params.id);
       return listEvents({ tripId: getTrip(req.params.id).id, limit: 200 });
+    },
+  );
+  r.get(
+    "/trips/:id/waybill",
+    {
+      schema: {
+        tags,
+        summary: "Structured dispatch waybill, cargo manifest, and e-POD record",
+        params: IdParamsSchema,
+        response: { 200: WaybillSchema },
+      },
+    },
+    async (req) => {
+      assertAssignedDriver(req, req.params.id);
+      return getTripWaybill(req.params.id);
     },
   );
 }

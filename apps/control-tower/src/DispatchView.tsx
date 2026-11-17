@@ -10,6 +10,7 @@ import {
 } from "@corelogistics/contracts";
 import {
   api,
+  buildTripJourney,
   ErrorNote,
   EventFeed,
   Field,
@@ -17,12 +18,15 @@ import {
   fmtDateTime,
   fromLocalInput,
   fromNow,
+  JourneyRibbon,
   Modal,
   Pill,
+  SendNudgeModal,
   toLocalInput,
   useAction,
   useApi,
   useNow,
+  WaybillModal,
   type Refs,
 } from "@corelogistics/ui";
 import {
@@ -30,9 +34,11 @@ import {
   ArrowRight,
   ArrowRightLeft,
   ArrowUpRight,
+  BellRing,
   Calendar,
   CalendarClock,
   CheckCircle2,
+  FileText,
   Clock,
   MapPin,
   Navigation,
@@ -45,6 +51,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { NewSiteModal } from "./NewSiteModal";
 
 const COLUMNS: Array<{
   status: TripStatus;
@@ -59,7 +66,15 @@ const COLUMNS: Array<{
   { status: "completed", label: "Completed", icon: CheckCircle2, color: "var(--muted)" },
 ];
 
-export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: string; key: number } | null }) {
+export function DispatchView({
+  refs,
+  focus,
+  onOpenDesigner,
+}: {
+  refs: Refs;
+  focus?: { query: string; key: number } | null;
+  onOpenDesigner?: (siteId: string) => void;
+}) {
   const now = useNow(30_000);
   const isTripEvent = (e: EventRecord) =>
     e.type.startsWith("trip.") || e.type.startsWith("gate.") || e.type.startsWith("dock.") || e.type === "device.read";
@@ -71,7 +86,9 @@ export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: str
     live: (e) => e.type === "trip.issue",
   });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [quickWaybillId, setQuickWaybillId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [addingDestination, setAddingDestination] = useState(false);
   const [filter, setFilter] = useState("");
   const appliedFocus = useRef<number | null>(null);
   const [quickFilter, setQuickFilter] = useState<
@@ -197,6 +214,11 @@ export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: str
         </div>
 
         <div className="dispatch-spacer" />
+
+        <button type="button" className="btn btn-ghost" onClick={() => setAddingDestination(true)}>
+          <MapPin size={15} />
+          <span>Add destination</span>
+        </button>
 
         <button className="btn btn-primary" onClick={() => setCreating(true)}>
           <Plus size={15} />
@@ -344,7 +366,7 @@ export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: str
                             )}
                           </div>
 
-                          <div className="trip-card-footer">
+                          <div className="trip-card-footer row-between" style={{ gap: 6 }}>
                             <span className="timing-readout">
                               {t.status === "in_transit" ? (
                                 <>
@@ -368,6 +390,18 @@ export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: str
                                 </>
                               )}
                             </span>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: "2px 7px", fontSize: 11 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setQuickWaybillId(t.id);
+                              }}
+                              title="Open printable Waybill & e-POD"
+                            >
+                              <FileText size={11} /> Waybill
+                            </button>
                           </div>
                         </div>
 
@@ -389,6 +423,7 @@ export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: str
         </div>
       </div>
       {open ? <TripModal trip={open} refs={refs} onClose={() => setOpenId(null)} /> : null}
+      {quickWaybillId ? <WaybillModal tripId={quickWaybillId} onClose={() => setQuickWaybillId(null)} /> : null}
       {creating ? (
         <NewTripModal
           refs={refs}
@@ -396,6 +431,16 @@ export function DispatchView({ refs, focus }: { refs: Refs; focus?: { query: str
           onCreated={(t) => {
             setCreating(false);
             setOpenId(t.id);
+          }}
+        />
+      ) : null}
+      {addingDestination ? (
+        <NewSiteModal
+          initialKind="customer"
+          onClose={() => setAddingDestination(false)}
+          onCreated={(site, openInDesigner) => {
+            setAddingDestination(false);
+            if (openInDesigner && onOpenDesigner) onOpenDesigner(site.id);
           }}
         />
       ) : null}
@@ -453,6 +498,8 @@ function AssetSelects({
 function TripModal({ trip, refs, onClose }: { trip: Trip; refs: Refs; onClose: () => void }) {
   const events = useApi<EventRecord[]>(`/trips/${trip.id}/events`, { live: (e) => e.tripId === trip.id });
   const { busy, run } = useAction();
+  const [nudging, setNudging] = useState(false);
+  const [waybillOpen, setWaybillOpen] = useState(false);
   const editable = trip.status === "planned" || trip.status === "dispatched";
   const [assets, setAssets] = useState({ vehicleId: trip.vehicleId, trailerId: trip.trailerId, driverId: trip.driverId });
   const [dep, setDep] = useState(toLocalInput(trip.plannedDeparture));
@@ -465,14 +512,30 @@ function TripModal({ trip, refs, onClose }: { trip: Trip; refs: Refs; onClose: (
     arr !== toLocalInput(trip.plannedArrival);
 
   const act = (path: string, label: string) => run(() => api.post<Trip>(`/trips/${trip.id}/${path}`), `${trip.code} ${label}`);
+  const photos = (events.data ?? [])
+    .map((e) => ({ id: e.id, msg: e.message, src: typeof e.payload?.proofPhoto === "string" ? e.payload.proofPhoto : null }))
+    .filter((p): p is { id: number; msg: string; src: string } => Boolean(p.src));
 
   return (
     <Modal title={`${trip.code} · ${refs.siteCode(trip.originSiteId)} → ${refs.siteCode(trip.destinationSiteId)}`} onClose={onClose}>
-      <div className="row">
-        <Pill value={trip.status} />
-        <Pill tone="muted">{humanize(trip.kind)}</Pill>
-        {trip.delayed ? <Pill tone="danger">{trip.delayMinutes} min late</Pill> : <Pill tone="ok">On time</Pill>}
+      <div className="row-between">
+        <div className="row">
+          <Pill value={trip.status} />
+          <Pill tone="muted">{humanize(trip.kind)}</Pill>
+          {trip.delayed ? <Pill tone="danger">{trip.delayMinutes} min late</Pill> : <Pill tone="ok">On time</Pill>}
+        </div>
+        <div className="row" style={{ gap: 6 }}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWaybillOpen(true)}>
+            <FileText size={13} /> Waybill / e-POD
+          </button>
+          {trip.status !== "completed" && trip.status !== "cancelled" ? (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setNudging(true)}>
+              <BellRing size={13} /> Nudge driver
+            </button>
+          ) : null}
+        </div>
       </div>
+      <JourneyRibbon stages={buildTripJourney(trip, events.data ?? [], refs)} />
       <dl className="kv">
         <dt>Route</dt>
         <dd>
@@ -583,12 +646,44 @@ function TripModal({ trip, refs, onClose }: { trip: Trip; refs: Refs; onClose: (
           </button>
         ) : null}
       </div>
+      {photos.length ? (
+        <div>
+          <p className="field-label" style={{ marginBottom: 6 }}>
+            Photo proofs
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            {photos.map((p) => (
+              <div key={p.id} className="stack" style={{ gap: 4 }}>
+                <img
+                  src={p.src}
+                  alt={p.msg}
+                  style={{ width: 130, height: 84, objectFit: "cover", borderRadius: 10, border: "1px solid var(--line)" }}
+                />
+                <span className="muted small" style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {p.msg}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div>
         <p className="field-label" style={{ marginBottom: 6 }}>
           Timeline
         </p>
         <EventFeed events={events.data} />
       </div>
+      {nudging ? (
+        <SendNudgeModal
+          targetRole="driver"
+          siteId={trip.destinationSiteId}
+          driverId={trip.driverId}
+          tripId={trip.id}
+          locationCode={trip.code}
+          onClose={() => setNudging(false)}
+        />
+      ) : null}
+      {waybillOpen ? <WaybillModal tripId={trip.id} onClose={() => setWaybillOpen(false)} /> : null}
     </Modal>
   );
 }

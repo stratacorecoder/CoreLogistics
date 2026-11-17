@@ -3,12 +3,15 @@ import {
   CheckInInputSchema,
   CheckOutInputSchema,
   DockAppointmentInputSchema,
+  DockAppointmentPatchSchema,
+  GateVisitInspectionPatchSchema,
   minutesBetween,
   VisitQuerySchema,
   type DockAppointment,
   type DockPurpose,
   type DockSuggestion,
   type ExpectedTrip,
+  type GateInspectionStatus,
   type GateVisit,
 } from "@corelogistics/contracts";
 import type { z } from "zod";
@@ -60,6 +63,9 @@ function toVisit(r: Row): GateVisit {
         }
       : null,
     dwellMinutes: minutesBetween(r.check_in_at, r.check_out_at ?? Date.now()),
+    proofPhotoIn: r.proof_photo_in ?? null,
+    proofPhotoOut: r.proof_photo_out ?? null,
+    inspectionStatus: ((r.inspection_status as GateInspectionStatus) ?? "passed"),
   };
 }
 
@@ -238,6 +244,66 @@ export function cancelAppointment(id: string, ctx: Ctx): DockAppointment {
       tripId: appt.tripId,
       entityId: id,
       message: `Appointment ${appt.code} for ${appt.plate} was cancelled`,
+    });
+    return updated;
+  });
+}
+
+export function updateAppointment(
+  id: string,
+  input: z.output<typeof DockAppointmentPatchSchema>,
+  ctx: Ctx,
+): DockAppointment {
+  return tx(() => {
+    const appt = getAppointment(id);
+    if (appt.status !== "scheduled") {
+      throw badRequest("Only scheduled appointments can be modified");
+    }
+    const nextStart = input.windowStart ? canonicalTimestamp(input.windowStart) : appt.windowStart;
+    const nextEnd = input.windowEnd ? canonicalTimestamp(input.windowEnd) : appt.windowEnd;
+    if (Date.parse(nextEnd) <= Date.parse(nextStart)) {
+      throw badRequest("Window end must be after window start");
+    }
+    const nextLocationId = input.locationId === undefined ? appt.locationId : input.locationId;
+    let locationCode: string | null = appt.locationCode;
+    if (nextLocationId) {
+      const loc = getLocation(nextLocationId);
+      if (loc.siteId !== appt.siteId || loc.kind !== "dock_door") {
+        throw badRequest("Location is not a dock door at this site");
+      }
+      locationCode = loc.code;
+      const conflicting = findAppointmentOverlap(appt.siteId, nextLocationId, nextStart, nextEnd, id);
+      if (conflicting) {
+        throw conflict(
+          `Dock door ${locationCode} is already booked by appointment ${conflicting.code} (${conflicting.plate}) for window ${conflicting.windowStart} - ${conflicting.windowEnd}`,
+        );
+      }
+    } else {
+      locationCode = null;
+    }
+    run(
+      `UPDATE dock_appointments
+       SET carrier = ?, purpose = ?, location_id = ?, window_start = ?, window_end = ?, notes = ?
+       WHERE id = ?`,
+      [
+        input.carrier ?? appt.carrier,
+        input.purpose ?? appt.purpose,
+        nextLocationId,
+        nextStart,
+        nextEnd,
+        input.notes ?? appt.notes,
+        id,
+      ],
+    );
+    const updated = getAppointment(id);
+    emit(ctx, {
+      type: "appointment.rescheduled",
+      siteId: appt.siteId,
+      tripId: appt.tripId,
+      locationId: nextLocationId,
+      entityId: id,
+      message: `Appointment ${appt.code} updated (${locationCode ?? "auto door"}, ${nextStart} - ${nextEnd})`,
+      payload: { code: appt.code, plate: appt.plate, locationCode },
     });
     return updated;
   });
@@ -604,9 +670,22 @@ export function checkIn(input: z.output<typeof CheckInInputSchema>, ctx: Ctx): G
     const id = newId("vis");
     const when = at(ctx);
     run(
-      `INSERT INTO gate_visits (id, site_id, vehicle_id, trip_id, plate, status, check_in_at, yard_location_id, seal_in, notes, source_in)
-       VALUES (?, ?, ?, ?, ?, 'in_yard', ?, ?, ?, ?, ?)`,
-      [id, site.id, vehicle.id, trip?.id ?? null, vehicle.plate, when, yardId, input.sealNo, input.notes, ctx.source],
+      `INSERT INTO gate_visits (id, site_id, vehicle_id, trip_id, plate, status, check_in_at, yard_location_id, seal_in, notes, source_in, proof_photo_in, inspection_status)
+       VALUES (?, ?, ?, ?, ?, 'in_yard', ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        site.id,
+        vehicle.id,
+        trip?.id ?? null,
+        vehicle.plate,
+        when,
+        yardId,
+        input.sealNo,
+        input.notes,
+        ctx.source,
+        input.proofPhoto ?? null,
+        input.inspectionStatus ?? "passed",
+      ],
     );
     const scheduledAppt = one<Row>(
       `SELECT id FROM dock_appointments WHERE site_id = ? AND status = 'scheduled' AND (plate = ? OR (trip_id IS NOT NULL AND trip_id = ?))
@@ -649,9 +728,10 @@ export function checkOut(input: z.output<typeof CheckOutInputSchema>, ctx: Ctx):
     const when = at(ctx);
     if (visit.dock) run("UPDATE dock_assignments SET released_at = ? WHERE id = ?", [when, visit.dock.assignmentId]);
     run(
-      `UPDATE gate_visits SET status = 'departed', check_out_at = ?, seal_out = ?, notes = CASE WHEN ? = '' THEN notes ELSE TRIM(notes || ' ' || ?) END,
+      `UPDATE gate_visits SET status = 'departed', check_out_at = ?, seal_out = ?, proof_photo_out = COALESCE(?, proof_photo_out),
+       notes = CASE WHEN ? = '' THEN notes ELSE TRIM(notes || ' ' || ?) END,
        source_out = ? WHERE id = ?`,
-      [when, input.sealNo, input.notes, input.notes, ctx.source, visit.id],
+      [when, input.sealNo, input.proofPhoto ?? null, input.notes, input.notes, ctx.source, visit.id],
     );
     run(
       `UPDATE dock_appointments SET status = 'completed'
@@ -827,6 +907,34 @@ export function moveInYard(visitId: string, locationId: string, ctx: Ctx): GateV
       locationId: loc.id,
       entityId: visit.id,
       message: `${visit.plate} moved to ${loc.code}`,
+    });
+    return getVisit(visit.id);
+  });
+}
+
+export function inspectVisit(
+  visitId: string,
+  input: z.output<typeof GateVisitInspectionPatchSchema>,
+  ctx: Ctx,
+): GateVisit {
+  return tx(() => {
+    const visit = getVisit(visitId);
+    const nextStatus = input.inspectionStatus ?? visit.inspectionStatus;
+    const nextSeal = input.sealNo ?? visit.sealIn;
+    const nextNotes = input.notes ?? visit.notes;
+    const nextPhoto = input.proofPhoto === undefined ? visit.proofPhotoIn : input.proofPhoto;
+    run(
+      `UPDATE gate_visits SET inspection_status = ?, seal_in = ?, notes = ?, proof_photo_in = ? WHERE id = ?`,
+      [nextStatus, nextSeal, nextNotes, nextPhoto, visit.id],
+    );
+    emit(ctx, {
+      type: "gate.inspected",
+      siteId: visit.siteId,
+      vehicleId: visit.vehicleId,
+      tripId: visit.tripId,
+      entityId: visit.id,
+      message: `${visit.plate} security inspection: ${nextStatus}${nextSeal ? ` (seal ${nextSeal})` : ""}`,
+      payload: { inspectionStatus: nextStatus, sealNo: nextSeal },
     });
     return getVisit(visit.id);
   });

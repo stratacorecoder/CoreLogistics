@@ -281,6 +281,344 @@ button.item:hover {
 .legend-swatch.k-rack { background: var(--map-rack); }
 .legend-swatch.is-busy-swatch { background: var(--map-busy); }
 
+/* Multi-lens & isometric spatial twin ------------------------------------ */
+
+.site-map-frame.lens-heat .map-cell.heat-idle { opacity: 0.45; }
+.site-map-frame.lens-heat .map-cell.heat-low {
+  background: #0ea5e9 !important;
+  color: #fff !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.site-map-frame.lens-heat .map-cell.heat-med {
+  background: #eab308 !important;
+  color: #0f172a !important;
+  font-weight: 700;
+}
+.site-map-frame.lens-heat .map-cell.heat-high {
+  background: #ea580c !important;
+  color: #fff !important;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(234, 88, 12, 0.45);
+}
+.site-map-frame.lens-heat .map-cell.heat-crit {
+  background: #dc2626 !important;
+  color: #fff !important;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.6);
+}
+
+.flow-arc-path {
+  stroke-dasharray: 6 5;
+  stroke-linecap: round;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .flow-arc-path {
+    animation: flow-dash 1.2s linear infinite;
+  }
+}
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+.site-map-iso-stage {
+  perspective: 1100px;
+  padding: 28px 18px 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.site-map-frame.is-isometric {
+  transform: rotateX(46deg) rotateZ(-28deg);
+  transform-style: preserve-3d;
+  box-shadow: 18px 26px 40px rgba(15, 23, 42, 0.26);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.site-map-frame.is-isometric .map-cell.k-rack {
+  transform: translateZ(14px);
+  box-shadow: 4px 6px 0 rgba(76, 29, 149, 0.55);
+}
+.site-map-frame.is-isometric .map-cell.k-dock_door,
+.site-map-frame.is-isometric .map-cell.k-office {
+  transform: translateZ(10px);
+  box-shadow: 3px 5px 0 rgba(15, 23, 42, 0.32);
+}
+.site-map-frame.is-isometric .map-cell.k-yard_slot.is-busy,
+.site-map-frame.is-isometric .map-cell.k-staging.is-busy {
+  transform: translateZ(7px);
+  box-shadow: 2px 4px 0 rgba(15, 23, 42, 0.28);
+}
+
+/* Rack bay cross-section, journey ribbon, DVR, and nudges ---------------- */
+
+.rack-stack {
+  display: grid;
+  gap: 8px;
+}
+.rack-shelf {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-card);
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+}
+.rack-shelf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.rack-shelf-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.rack-hu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.14);
+  border: 1px solid rgba(124, 58, 237, 0.28);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+.rack-slot-empty {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--line);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.journey-ribbon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+}
+.journey-stage {
+  position: relative;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-card);
+  display: grid;
+  gap: 3px;
+}
+.journey-stage.is-done {
+  border-color: rgba(21, 128, 61, 0.35);
+  background: rgba(52, 199, 89, 0.08);
+}
+.journey-stage.is-active {
+  border-color: var(--accent);
+  background: rgba(0, 122, 255, 0.1);
+}
+.journey-stage.is-delayed {
+  border-color: var(--danger);
+  background: var(--danger-subtle);
+}
+.journey-stage-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+.journey-stage-time {
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+  color: var(--muted);
+}
+.journey-stage-meta {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.nudge-banner-stack {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.nudge-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 122, 255, 0.35);
+  background: rgba(0, 122, 255, 0.12);
+  backdrop-filter: blur(18px);
+}
+.nudge-banner.is-urgent {
+  border-color: rgba(215, 0, 21, 0.45);
+  background: rgba(255, 59, 48, 0.14);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nudge-banner.is-urgent {
+    animation: hot-glow-light 2s ease-in-out infinite;
+  }
+}
+
+/* Three.js 3D Digital Twin ------------------------------------------------ */
+
+.sitemap-3d-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.sitemap-3d-host {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+}
+.sitemap-3d-hud {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+}
+.sitemap-3d-tooltip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--glass-solid-strong, rgba(15, 23, 42, 0.86));
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-heading);
+  pointer-events: none;
+}
+.sitemap-3d-hint {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  z-index: 4;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(10px);
+  font-size: 11px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* Printable Waybill & e-POD Sheet ---------------------------------------- */
+
+.waybill-sheet {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--panel-card);
+  border: 1px solid var(--line);
+}
+.waybill-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.waybill-brand {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.waybill-code {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-heading);
+}
+.waybill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.waybill-box {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-soft);
+  background: var(--glass-bg-subtle);
+  display: grid;
+  gap: 4px;
+}
+.waybill-box-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.waybill-kv-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 12.5px;
+}
+.waybill-table {
+  font-size: 12px;
+}
+.waybill-sig-line {
+  height: 52px;
+  border-bottom: 1px dashed var(--line-bright);
+  display: flex;
+  align-items: flex-end;
+  font-size: 10.5px;
+  color: var(--muted);
+  padding-bottom: 4px;
+}
+
+@media print {
+  body.printing-waybill-modal .shell,
+  body.printing-waybill-modal .modal-head,
+  body.printing-waybill-modal .waybill-no-print,
+  body.printing-waybill-modal .toasts {
+    display: none !important;
+  }
+  body.printing-waybill-modal .modal-backdrop {
+    position: static !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+  }
+  body.printing-waybill-modal .modal {
+    box-shadow: none !important;
+    border: 0 !important;
+    background: #ffffff !important;
+    max-height: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    color: #0f172a !important;
+  }
+  #waybill-print-sheet {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+  }
+  #waybill-print-sheet .waybill-box {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+  }
+}
+
 /* Modal and toasts ---------------------------------------------------------- */
 
 .modal-backdrop {
@@ -395,4 +733,32 @@ button.item:hover {
     min-height: auto;
     min-width: 0;
   }
+}
+
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass-bg-subtle);
+  gap: 2px;
+}
+.segmented button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.segmented button.is-on {
+  background: var(--panel-card);
+  color: var(--text-heading);
+  box-shadow: var(--card-shadow);
 }

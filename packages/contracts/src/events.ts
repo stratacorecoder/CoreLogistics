@@ -23,6 +23,7 @@ export const EVENT_TYPES = [
   "trip.issue",
   "gate.check_in",
   "gate.check_out",
+  "gate.inspected",
   "yard.moved",
   "dock.assigned",
   "dock.released",
@@ -50,6 +51,8 @@ export const EVENT_TYPES = [
   "copilot.dismissed",
   "copilot.config",
   "copilot.failed",
+  "ops.nudge",
+  "ops.nudge_ack",
 ] as const;
 export const EventTypeSchema = z.enum(EVENT_TYPES);
 export type EventType = z.infer<typeof EventTypeSchema>;
@@ -156,3 +159,61 @@ export const IngestResultSchema = z.object({
   eventId: z.number().int().nullable().describe("Null for routine GPS pings that are only stored on the vehicle"),
 });
 export type IngestResult = z.infer<typeof IngestResultSchema>;
+
+export const NUDGE_TARGET_ROLES = ["warehouse", "gate", "driver"] as const;
+export const NudgeTargetRoleSchema = z.enum(NUDGE_TARGET_ROLES);
+export type NudgeTargetRole = z.infer<typeof NudgeTargetRoleSchema>;
+
+export const NudgePrioritySchema = z.enum(["normal", "urgent"]);
+export type NudgePriority = z.infer<typeof NudgePrioritySchema>;
+
+export const NudgeInputSchema = z.object({
+  targetRole: NudgeTargetRoleSchema,
+  siteId: IdSchema.optional(),
+  driverId: IdSchema.optional(),
+  tripId: IdSchema.optional(),
+  locationCode: z.string().trim().min(1).max(32).optional(),
+  priority: NudgePrioritySchema.default("normal"),
+  message: z.string().trim().min(2).max(240),
+});
+export type NudgeInput = z.input<typeof NudgeInputSchema>;
+
+export const NudgeAckInputSchema = z.object({
+  note: z.string().trim().max(160).optional(),
+  proofPhoto: z
+    .string()
+    .trim()
+    .max(250_000)
+    .refine(
+      (val) => !val || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(val),
+      { message: "Photo proof must be a valid base64 PNG, JPEG, or WebP data URL" },
+    )
+    .optional(),
+});
+export type NudgeAckInput = z.input<typeof NudgeAckInputSchema>;
+
+export const NudgeQuerySchema = z.object({
+  targetRole: NudgeTargetRoleSchema.optional(),
+  siteId: IdSchema.optional(),
+  driverId: IdSchema.optional(),
+  openOnly: z.enum(["true", "false"]).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const OpsNudgeSchema = z.object({
+  id: z.number().int(),
+  targetRole: NudgeTargetRoleSchema,
+  siteId: IdSchema.nullable(),
+  driverId: IdSchema.nullable(),
+  tripId: IdSchema.nullable(),
+  locationCode: z.string().nullable(),
+  priority: NudgePrioritySchema,
+  message: z.string(),
+  sender: z.string().nullable(),
+  createdAt: z.string(),
+  ackedAt: z.string().nullable(),
+  ackedBy: z.string().nullable(),
+  ackNote: z.string().nullable(),
+  ackPhoto: z.string().nullable(),
+});
+export type OpsNudge = z.infer<typeof OpsNudgeSchema>;

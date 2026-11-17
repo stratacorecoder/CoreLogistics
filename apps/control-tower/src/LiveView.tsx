@@ -5,10 +5,12 @@ import {
   type EventRecord,
   type GateVisit,
   type LocationStatus,
+  type NudgeTargetRole,
   type SiteBoard,
   type Trip,
 } from "@corelogistics/contracts";
 import {
+  buildDvrBuckets,
   Empty,
   ErrorNote,
   fmtDateTime,
@@ -16,15 +18,24 @@ import {
   issueReport,
   MapLegend,
   Panel,
-  SiteMap,
+  Pill,
   qs,
+  RackInspector,
+  replaySiteState,
+  SendNudgeModal,
+  SiteMap,
   useApi,
   useFitMapCells,
   useNow,
+  WaybillModal,
   type MapCell,
+  type MapLens,
   type Refs,
 } from "@corelogistics/ui";
-import { useEffect, useRef, useState } from "react";
+import { BellRing, FileText, History, Pause, Play, RotateCcw } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+
+const SiteMap3D = lazy(() => import("@corelogistics/ui").then((m) => ({ default: m.SiteMap3D })));
 
 function formatEventTime(iso: string): string {
   const d = new Date(iso);
@@ -44,11 +55,13 @@ export function LiveView({
   refs,
   focus,
   onOpenTrip,
+  onOpenAnalytics,
 }: {
   siteId: string;
   refs: Refs;
   focus?: { query: string; key: number } | null;
   onOpenTrip?: (code: string) => void;
+  onOpenAnalytics?: () => void;
 }) {
   const now = useNow(30_000);
   const forSite = (e: EventRecord) => !e.siteId || e.siteId === siteId;
@@ -88,8 +101,60 @@ export function LiveView({
   const reports = useApi<EventRecord[]>("/events?type=trip.issue&limit=6", {
     live: (e) => e.type === "trip.issue",
   });
+  const [lens, setLens] = useState<MapLens>("standard");
+  const [isometric, setIsometric] = useState(false);
+  const [dvrActive, setDvrActive] = useState(false);
+  const [dvrCursor, setDvrCursor] = useState<number | null>(null);
+  const [dvrPlaying, setDvrPlaying] = useState(false);
+  const [dvrSpeed, setDvrSpeed] = useState<1 | 4 | 10>(4);
+  const [nudgeTarget, setNudgeTarget] = useState<{
+    targetRole: NudgeTargetRole;
+    driverId?: string | null;
+    tripId?: string | null;
+    locationCode?: string | null;
+  } | null>(null);
+  const [waybillTripId, setWaybillTripId] = useState<string | null>(null);
+  const dvrEventsApi = useApi<EventRecord[]>(
+    dvrActive ? `/events${qs({ siteId, limit: 200 })}` : null,
+    { live: false },
+  );
   const [selected, setSelected] = useState<{ cell: MapCell; locs: LocationStatus[] } | null>(null);
   const appliedFocus = useRef<number | null>(null);
+
+  const dvrChrono = useMemo(
+    () => [...(dvrEventsApi.data ?? [])].reverse(),
+    [dvrEventsApi.data],
+  );
+  const effectiveCursor =
+    dvrActive && dvrChrono.length
+      ? Math.max(0, Math.min(dvrChrono.length - 1, dvrCursor ?? dvrChrono.length - 1))
+      : 0;
+  const dvrBuckets = useMemo(() => buildDvrBuckets(dvrChrono), [dvrChrono]);
+  const dvrSnapshot = useMemo(() => {
+    if (!dvrActive || !board.data || !dvrChrono.length) return null;
+    return replaySiteState({
+      liveBoard: board.data,
+      liveVisits: visits.data ?? [],
+      events: dvrChrono,
+      cursorIndex: effectiveCursor,
+    });
+  }, [dvrActive, board.data, visits.data, dvrChrono, effectiveCursor]);
+
+  useEffect(() => {
+    if (!dvrActive || !dvrPlaying || !dvrChrono.length) return;
+    const ms = dvrSpeed === 10 ? 180 : dvrSpeed === 4 ? 380 : 900;
+    const timer = window.setInterval(() => {
+      setDvrCursor((prev) => {
+        const cur = prev ?? 0;
+        if (cur >= dvrChrono.length - 1) {
+          setDvrPlaying(false);
+          return dvrChrono.length - 1;
+        }
+        return cur + 1;
+      });
+    }, ms);
+    return () => window.clearInterval(timer);
+  }, [dvrActive, dvrPlaying, dvrSpeed, dvrChrono.length]);
 
   useEffect(() => {
     if (!focus?.query || !board.data || appliedFocus.current === focus.key) return;
@@ -108,6 +173,9 @@ export function LiveView({
   const s = stats.data;
   const layout = board.data?.layout;
   const { ref: mapRef, cell } = useFitMapCells(layout?.cols ?? 0, layout?.rows ?? 0);
+  const shownLocations = dvrSnapshot ? dvrSnapshot.locations : board.data?.locations ?? [];
+  const shownEvents = dvrSnapshot ? dvrSnapshot.eventsUpToCursor.slice(0, 40) : events.data;
+  const shownNow = dvrSnapshot ? Date.parse(dvrSnapshot.occurredAt) || now : now;
   const selectedVisit =
     selected &&
     visits.data?.find(
@@ -115,6 +183,17 @@ export function LiveView({
         selected.locs.some((l) => l.id === v.yardLocationId) ||
         selected.locs.some((l) => l.id === v.dock?.locationId),
     );
+
+  const openDvr = () => {
+    setDvrActive(true);
+    setDvrPlaying(false);
+    setDvrCursor(null);
+  };
+  const closeDvr = () => {
+    setDvrActive(false);
+    setDvrPlaying(false);
+    setDvrCursor(null);
+  };
 
   return (
     <div className="three live-board">
@@ -138,9 +217,11 @@ export function LiveView({
                 <circle cx="18.5" cy="18.5" r="2.5" />
               </svg>
             </div>
-            <div className="live-kpi-value">{s?.yard.inYard ?? 0}</div>
+            <div className="live-kpi-value">{dvrSnapshot ? dvrSnapshot.inYardCount : (s?.yard.inYard ?? 0)}</div>
             <div className="live-kpi-hint">
-              Longest {s?.yard.maxCurrentDwellMinutes ? formatDuration(s.yard.maxCurrentDwellMinutes) : "—"}
+              {dvrSnapshot
+                ? "DVR snapshot"
+                : `Longest ${s?.yard.maxCurrentDwellMinutes ? formatDuration(s.yard.maxCurrentDwellMinutes) : "—"}`}
             </div>
           </div>
 
@@ -148,9 +229,11 @@ export function LiveView({
             <div className="live-kpi-header">
               <span className="live-kpi-label">AT DOCK</span>
             </div>
-            <div className="live-kpi-value">{s?.yard.atDock ?? 0}</div>
+            <div className="live-kpi-value">{dvrSnapshot ? dvrSnapshot.atDockCount : (s?.yard.atDock ?? 0)}</div>
             <div className="live-kpi-hint">
-              Turnaround {s?.turnaroundMinutes ? formatDuration(s.turnaroundMinutes) : "—"}
+              {dvrSnapshot
+                ? "Doors busy"
+                : `Turnaround ${s?.turnaroundMinutes ? formatDuration(s.turnaroundMinutes) : "—"}`}
             </div>
           </div>
 
@@ -158,16 +241,44 @@ export function LiveView({
             <div className="live-kpi-header">
               <span className="live-kpi-label">ACTIVE TRIPS</span>
             </div>
-            <div className="live-kpi-value color-blue">{s?.trips.active ?? 0}</div>
+            <div className="live-kpi-value color-blue">{dvrSnapshot ? dvrSnapshot.activeTripCount : (s?.trips.active ?? 0)}</div>
           </div>
 
           <div className="live-kpi-card is-delayed">
             <div className="live-kpi-header">
-              <span className="live-kpi-label">DELAYED</span>
+              <span className="live-kpi-label">{dvrSnapshot ? "ISSUES" : "DELAYED"}</span>
             </div>
-            <div className="live-kpi-value color-red">{s?.trips.delayed ?? 0}</div>
+            <div className="live-kpi-value color-red">{dvrSnapshot ? dvrSnapshot.issueCount : (s?.trips.delayed ?? 0)}</div>
           </div>
         </div>
+
+        {s && !dvrSnapshot ? (
+          <button
+            type="button"
+            className="on-site-truck-card"
+            style={{ padding: "10px 12px", textAlign: "left", cursor: "pointer", width: "100%" }}
+            onClick={() => onOpenAnalytics?.()}
+            title="Open Financial & FEFO Risk Radar in Analytics"
+          >
+            <div className="row-between">
+              <span className="live-kpi-label">EXPOSURE &amp; FEFO</span>
+              <span className="mono strong" style={{ color: "var(--danger)", fontSize: 13 }}>
+                ₱
+                {Math.round(
+                  s.risk.delayPenaltyExposure + s.risk.yardDetentionExposure + s.risk.atRiskInventoryValue,
+                ).toLocaleString("en-US")}
+              </span>
+            </div>
+            <div className="row-between" style={{ marginTop: 3 }}>
+              <span className="on-site-truck-meta">
+                {s.risk.expiredCount} expired · {s.risk.expiringSoonCount} ≤14d
+              </span>
+              <span className="small" style={{ color: "var(--accent)", fontWeight: 600 }}>
+                Radar →
+              </span>
+            </div>
+          </button>
+        ) : null}
 
         <Panel title="On site now" scroll className="grow">
           {visits.data?.length ? (
@@ -204,24 +315,145 @@ export function LiveView({
 
       <Panel
         title={board.data ? `${board.data.site.code} · ${board.data.site.name}` : "Site"}
-        actions={<MapLegend />}
+        actions={
+          <div className="map-toolbar">
+            {dvrActive ? <Pill value="DVR REPLAY" tone="warn" /> : null}
+            <div className="segmented" role="group" aria-label="Map visualization lens">
+              {(["standard", "heat", "flow"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={lens === mode ? "is-on" : ""}
+                  onClick={() => setLens(mode)}
+                >
+                  {mode === "standard" ? "Standard" : mode === "heat" ? "Heat" : "Flow"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={`btn btn-sm ${isometric ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setIsometric((v) => !v)}
+              title="Toggle 3D warehouse & yard digital twin"
+            >
+              3D Twin
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${dvrActive ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => (dvrActive ? closeDvr() : openDvr())}
+              title="Scrub and replay historical site activity"
+            >
+              <History size={13} /> DVR Replay
+            </button>
+            <MapLegend />
+          </div>
+        }
         className="grow live-map-panel"
       >
         <ErrorNote error={board.error} />
         {board.data && board.data.layout.cells.length ? (
-          <div className="map-wrap live-map-wrap" ref={mapRef}>
-            <SiteMap
-              layout={board.data.layout}
-              locations={board.data.locations}
-              now={now}
-              cellWidth={cell.w}
-              cellHeight={cell.h}
-              selectedKey={selected ? `${selected.cell.x}:${selected.cell.y}` : null}
-              onCellClick={(cell, locs) => setSelected(locs.length ? { cell, locs } : null)}
-            />
-          </div>
+          isometric ? (
+            <div className="map-wrap live-map-wrap" style={{ padding: 4 }}>
+              <Suspense fallback={<Empty>Loading 3D twin…</Empty>}>
+                <SiteMap3D
+                  layout={board.data.layout}
+                  locations={shownLocations}
+                  now={shownNow}
+                  lens={lens}
+                  highlight={dvrSnapshot ? dvrSnapshot.highlightedLocationIds : undefined}
+                  selectedKey={selected ? `${selected.cell.x}:${selected.cell.y}` : null}
+                  onCellClick={(c, locs) => setSelected(locs.length ? { cell: c, locs } : null)}
+                />
+              </Suspense>
+            </div>
+          ) : (
+            <div className="map-wrap live-map-wrap" ref={mapRef}>
+              <SiteMap
+                layout={board.data.layout}
+                locations={shownLocations}
+                now={shownNow}
+                lens={lens}
+                highlight={dvrSnapshot ? dvrSnapshot.highlightedLocationIds : undefined}
+                cellWidth={cell.w}
+                cellHeight={cell.h}
+                selectedKey={selected ? `${selected.cell.x}:${selected.cell.y}` : null}
+                onCellClick={(cell, locs) => setSelected(locs.length ? { cell, locs } : null)}
+              />
+            </div>
+          )
         ) : board.data ? (
           <Empty>This site has no layout yet. Draw one in the Site designer.</Empty>
+        ) : null}
+        {dvrActive ? (
+          <div className="dvr-bar is-replaying">
+            <div className="dvr-bar-top">
+              <div className="row" style={{ gap: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={!dvrChrono.length}
+                  onClick={() => {
+                    if (!dvrPlaying && effectiveCursor >= dvrChrono.length - 1) setDvrCursor(0);
+                    setDvrPlaying((p) => !p);
+                  }}
+                >
+                  {dvrPlaying ? <Pause size={13} /> : <Play size={13} />}
+                  {dvrPlaying ? "Pause" : "Play"}
+                </button>
+                <div className="segmented" role="group" aria-label="Replay speed">
+                  {([1, 4, 10] as const).map((sp) => (
+                    <button key={sp} type="button" className={dvrSpeed === sp ? "is-on" : ""} onClick={() => setDvrSpeed(sp)}>
+                      {sp}x
+                    </button>
+                  ))}
+                </div>
+                <span className="mono small strong">
+                  {dvrSnapshot?.activeEvent ? fmtDateTime(dvrSnapshot.activeEvent.occurredAt) : "No events"}
+                </span>
+              </div>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={closeDvr}>
+                <RotateCcw size={13} /> Back to Live
+              </button>
+            </div>
+            {dvrChrono.length ? (
+              <div className="dvr-scrubber-wrap">
+                <div className="dvr-ticks" aria-hidden="true">
+                  {dvrBuckets.map((b) =>
+                    b.isIssue || b.isNudge ? (
+                      <span
+                        key={b.index}
+                        className={`dvr-tick ${b.isIssue ? "is-issue" : "is-nudge"}`}
+                        style={{ left: `${(b.index / Math.max(1, dvrChrono.length - 1)) * 100}%` }}
+                      />
+                    ) : null,
+                  )}
+                </div>
+                <input
+                  type="range"
+                  className="dvr-range"
+                  min={0}
+                  max={Math.max(0, dvrChrono.length - 1)}
+                  value={effectiveCursor}
+                  aria-label="Operations DVR timeline scrubber"
+                  onChange={(e) => {
+                    setDvrPlaying(false);
+                    setDvrCursor(Number(e.target.value));
+                  }}
+                />
+                <div className="row-between small muted">
+                  <span className="mono">
+                    Event {effectiveCursor + 1} / {dvrChrono.length}
+                  </span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>
+                    {dvrSnapshot?.activeEvent?.message ?? ""}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <span className="muted small">Loading site event history…</span>
+            )}
+          </div>
         ) : null}
       </Panel>
 
@@ -253,7 +485,24 @@ export function LiveView({
           </Panel>
         ) : null}
         {selected ? (
-          <Panel title={`${humanize(selected.cell.kind)} ${selected.locs[0]?.code.replace(/-\d+$/, "") ?? ""}`}>
+          <Panel
+            title={`${humanize(selected.cell.kind)} ${selected.locs[0]?.code.replace(/-\d+$/, "") ?? ""}`}
+            actions={
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() =>
+                  setNudgeTarget({
+                    targetRole: selected.cell.kind === "yard_slot" || selected.cell.kind === "gate" ? "gate" : "warehouse",
+                    locationCode: selected.locs[0]?.code.replace(/-\d+$/, "") ?? null,
+                    tripId: selectedVisit?.tripId ?? null,
+                  })
+                }
+              >
+                <BellRing size={13} /> Nudge
+              </button>
+            }
+          >
             {selectedVisit ? (
               <dl className="kv">
                 <dt>Vehicle</dt>
@@ -272,17 +521,7 @@ export function LiveView({
                 ) : null}
               </dl>
             ) : (
-              <div className="list">
-                {selected.locs.map((l) => (
-                  <div key={l.id} className="row-between small">
-                    <span className="mono">{l.code}</span>
-                    <span className="muted">{l.refs.join(", ") || "empty"}</span>
-                    <span>
-                      {l.occupied}/{l.capacity}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <RackInspector locs={selected.locs} />
             )}
           </Panel>
         ) : null}
@@ -307,10 +546,37 @@ export function LiveView({
                   <div className="live-trip-route">
                     {refs.siteCode(t.originSiteId)} → {refs.siteCode(t.destinationSiteId)} · {refs.plate(t.vehicleId)}
                   </div>
-                  <div className="live-trip-time">
-                    {t.status === "in_transit"
-                      ? `ETA ${fmtDateTime(t.etaAt)} (${fromNow(t.etaAt, now)})`
-                      : `Departs ${fmtDateTime(t.plannedDeparture)}`}
+                  <div className="row-between" style={{ marginTop: 4, gap: 6 }}>
+                    <div className="live-trip-time">
+                      {t.status === "in_transit"
+                        ? `ETA ${fmtDateTime(t.etaAt)} (${fromNow(t.etaAt, now)})`
+                        : `Departs ${fmtDateTime(t.plannedDeparture)}`}
+                    </div>
+                    <div className="row" style={{ gap: 4 }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setWaybillTripId(t.id)}
+                        title="Open printable Waybill & e-POD"
+                      >
+                        <FileText size={12} /> Waybill
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() =>
+                          setNudgeTarget({
+                            targetRole: t.status === "in_transit" ? "driver" : "warehouse",
+                            driverId: t.driverId,
+                            tripId: t.id,
+                            locationCode: t.code,
+                          })
+                        }
+                        title="Tap & Nudge assigned team"
+                      >
+                        <BellRing size={12} /> Nudge
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -320,10 +586,10 @@ export function LiveView({
           )}
         </Panel>
 
-        <Panel title="Activity" scroll className="grow">
-          {events.data?.length ? (
+        <Panel title={dvrSnapshot ? "Activity (DVR)" : "Activity"} scroll className="grow">
+          {shownEvents?.length ? (
             <div className="activity-timeline-list">
-              {events.data.map((e) => (
+              {shownEvents.map((e) => (
                 <div key={e.id} className={`activity-timeline-row${e.type === "trip.issue" ? ` is-issue is-${issueReport(e)?.tone ?? "warn"}` : ""}`}>
                   <span className="activity-time">{formatEventTime(e.occurredAt)}</span>
                   <span className="activity-sep">|</span>
@@ -339,6 +605,17 @@ export function LiveView({
           )}
         </Panel>
       </div>
+      {nudgeTarget ? (
+        <SendNudgeModal
+          targetRole={nudgeTarget.targetRole}
+          siteId={siteId}
+          driverId={nudgeTarget.driverId}
+          tripId={nudgeTarget.tripId}
+          locationCode={nudgeTarget.locationCode}
+          onClose={() => setNudgeTarget(null)}
+        />
+      ) : null}
+      {waybillTripId ? <WaybillModal tripId={waybillTripId} onClose={() => setWaybillTripId(null)} /> : null}
     </div>
   );
 }
